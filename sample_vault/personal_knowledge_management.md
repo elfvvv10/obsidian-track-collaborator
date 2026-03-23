@@ -13,4 +13,4 @@ Useful PKM ideas:
 - Good headings improve later retrieval.
 - Periodic synthesis notes make scattered ideas easier to reuse.
 
-If I build a research assistant on top of my vault, the assistant should cite the source notes it uses.
+If I build a research assistant on top of my vault, the assistant should cite the source notes it uses. [[AI Agents]] and [[Local LLMs]] are both useful reference notes for that system.

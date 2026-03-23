@@ -29,7 +29,14 @@ def chunk_notes(
         normalized_text = text.replace("\r\n", "\n").strip()
         note_path = normalize_path(note.path)
         note_key = make_note_key(note_path)
-        note_fingerprint = compute_note_fingerprint(note_path, normalized_text)
+        fingerprint_seed = "\n".join(
+            [
+                normalized_text,
+                "|".join(note.tags),
+                "|".join(note.linked_note_keys),
+            ]
+        )
+        note_fingerprint = compute_note_fingerprint(note_path, fingerprint_seed)
         source_dir = _path_directory(note_path)
 
         if strategy == "sentence":
@@ -49,6 +56,7 @@ def chunk_notes(
                     note_key=note_key,
                     note_fingerprint=note_fingerprint,
                     tags=note.tags,
+                    linked_note_keys=note.linked_note_keys,
                 )
             )
 

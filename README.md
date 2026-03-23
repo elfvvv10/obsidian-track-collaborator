@@ -12,6 +12,7 @@ A local-first Python CLI that turns an Obsidian vault into a retrieval-augmented
 - Supports optional retrieval filters by folder and path text
 - Supports configurable chunk sizing, candidate retrieval depth, and optional reranking
 - Parses frontmatter and stores tags for filtering and boosting
+- Detects Obsidian note links and can optionally include linked-note context
 - Generates grounded answers with a local Ollama chat model
 - Shows source note references in the terminal
 - Optionally saves answers back into the vault as Markdown notes
@@ -50,6 +51,7 @@ Core modules:
 - `retriever.py`: query embedding + candidate retrieval + optional reranking
 - `reranker.py`: lightweight heuristic reranking
 - `metadata_parser.py`: frontmatter and tag parsing helpers
+- `link_parser.py`: Obsidian link parsing helpers
 - `agent.py`: retrieval + answer orchestration
 - `saver.py`: save answer back to Markdown
 - `utils.py`: shared models and helpers
@@ -121,6 +123,9 @@ RETRIEVAL_CANDIDATE_MULTIPLIER=2
 CHUNKING_STRATEGY=markdown
 ENABLE_RERANKING=false
 TAG_BOOST_WEIGHT=3.0
+ENABLE_LINKED_NOTE_EXPANSION=false
+MAX_LINKED_NOTES=2
+LINKED_NOTE_CHUNKS_PER_NOTE=1
 ```
 
 Variable notes:
@@ -138,6 +143,9 @@ Variable notes:
 - `CHUNKING_STRATEGY`: `markdown` or `sentence`
 - `ENABLE_RERANKING`: enable simple heuristic reranking by default
 - `TAG_BOOST_WEIGHT`: extra ranking weight for chunks whose tags match `--boost-tag`
+- `ENABLE_LINKED_NOTE_EXPANSION`: include linked note context by default
+- `MAX_LINKED_NOTES`: maximum linked notes to expand per question
+- `LINKED_NOTE_CHUNKS_PER_NOTE`: chunks to include from each linked note
 
 ## Index Your Notes
 
@@ -177,6 +185,7 @@ python main.py ask "What do my notes say about AI agents?" --folder projects
 python main.py ask "What do my notes say about AI agents?" --path-contains agents
 python main.py ask "What do my notes say about AI agents?" --tag ai
 python main.py ask "What do my notes say about AI agents?" --boost-tag agents --boost-tag local-ai
+python main.py ask "What do my notes say about AI agents?" --include-linked
 python main.py ask "What do my notes say about AI agents?" --top-k 2 --candidate-count 6 --rerank
 ```
 

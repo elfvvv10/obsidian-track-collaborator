@@ -28,6 +28,9 @@ class AppConfig:
     chunking_strategy: str = "markdown"
     enable_reranking: bool = False
     tag_boost_weight: float = 3.0
+    enable_linked_note_expansion: bool = False
+    max_linked_notes: int = 2
+    linked_note_chunks_per_note: int = 1
     chroma_collection_name: str = "obsidian_notes"
     ollama_timeout_seconds: int = 60
 
@@ -57,6 +60,9 @@ def load_config() -> AppConfig:
     )
     enable_reranking = _bool_env("ENABLE_RERANKING", default=False)
     tag_boost_weight = _required_float_env("TAG_BOOST_WEIGHT", default=3.0, minimum=0.0)
+    enable_linked_note_expansion = _bool_env("ENABLE_LINKED_NOTE_EXPANSION", default=False)
+    max_linked_notes = _required_int_env("MAX_LINKED_NOTES", default=2, minimum=1)
+    linked_note_chunks_per_note = _required_int_env("LINKED_NOTE_CHUNKS_PER_NOTE", default=1, minimum=1)
 
     ensure_directory(output_path)
     ensure_directory(chroma_path)
@@ -78,6 +84,9 @@ def load_config() -> AppConfig:
         chunking_strategy=chunking_strategy,
         enable_reranking=enable_reranking,
         tag_boost_weight=tag_boost_weight,
+        enable_linked_note_expansion=enable_linked_note_expansion,
+        max_linked_notes=max_linked_notes,
+        linked_note_chunks_per_note=linked_note_chunks_per_note,
     )
 
 

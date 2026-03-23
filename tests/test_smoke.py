@@ -58,6 +58,19 @@ class VaultLoaderTests(unittest.TestCase):
             self.assertEqual(notes[0].frontmatter, {"category": "research", "tags": ["ai", "agents"]})
             self.assertEqual(notes[0].tags, ("ai", "agents", "local-rag"))
 
+    def test_load_notes_extracts_obsidian_links(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            vault = Path(tmp_dir)
+            (vault / "linked.md").write_text(
+                "# Linked Note\n\n"
+                "See [[Local LLMs]] and [[pkm#Links]].\n",
+                encoding="utf-8",
+            )
+
+            notes = load_notes(vault)
+
+            self.assertEqual(notes[0].links, ("local llms", "pkm"))
+
 
 class ChunkerTests(unittest.TestCase):
     def test_chunk_notes_preserves_metadata(self) -> None:

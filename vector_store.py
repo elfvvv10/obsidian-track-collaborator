@@ -42,6 +42,7 @@ class VectorStore:
                     "note_key": chunk.note_key,
                     "note_fingerprint": chunk.note_fingerprint,
                     "tags_serialized": _serialize_tags(chunk.tags),
+                    "linked_note_keys_serialized": _serialize_values(chunk.linked_note_keys),
                 }
                 for chunk in chunks
             ],
@@ -104,6 +105,46 @@ class VectorStore:
                 continue
             chunk_rows.append((document, dict(metadata), list(embedding)))
         return chunk_rows
+
+    def get_chunks_by_note_keys(
+        self,
+        note_keys: list[str],
+        *,
+        max_chunks_per_note: int,
+        excluded_note_keys: set[str] | None = None,
+    ) -> list[RetrievedChunk]:
+        """Return a small number of chunks for the requested linked notes."""
+        linked_chunks: list[RetrievedChunk] = []
+        excluded_note_keys = excluded_note_keys or set()
+
+        for note_key in note_keys:
+            if note_key in excluded_note_keys:
+                continue
+            results = self.collection.get(
+                include=["documents", "metadatas"],
+                where={"note_key": note_key},
+            )
+            documents = results.get("documents", [])
+            metadatas = results.get("metadatas", [])
+            rows = [
+                (document, metadata)
+                for document, metadata in zip(documents, metadatas)
+                if document and metadata
+            ]
+            rows.sort(key=lambda row: int(row[1].get("chunk_index", 0)))
+
+            for document, metadata in rows[:max_chunks_per_note]:
+                linked_metadata = dict(metadata)
+                linked_metadata["linked_context"] = True
+                linked_chunks.append(
+                    RetrievedChunk(
+                        text=document,
+                        metadata=linked_metadata,
+                        distance_or_score=None,
+                    )
+                )
+
+        return linked_chunks
 
     def _query_with_path_contains(
         self,
@@ -177,10 +218,18 @@ def _cosine_distance(left: list[float], right: list[float]) -> float:
 
 
 def _serialize_tags(tags: tuple[str, ...]) -> str:
-    return "|".join(tags)
+    return _serialize_values(tags)
 
 
 def _deserialize_tags(value: object) -> tuple[str, ...]:
+    return _deserialize_values(value)
+
+
+def _serialize_values(values: tuple[str, ...]) -> str:
+    return "|".join(values)
+
+
+def _deserialize_values(value: object) -> tuple[str, ...]:
     if not isinstance(value, str) or not value:
         return ()
     return tuple(part for part in value.split("|") if part)

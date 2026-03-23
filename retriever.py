@@ -44,6 +44,11 @@ class Retriever:
             else self.config.enable_reranking
         )
         boost_tags = options.boost_tags if options else ()
+        include_linked_notes = (
+            options.include_linked_notes
+            if options and options.include_linked_notes is not None
+            else self.config.enable_linked_note_expansion
+        )
 
         query_embedding = self.embedding_client.embed_text(query)
         chunks = self.vector_store.query(query_embedding, candidate_count, filters=filters)
@@ -54,4 +59,39 @@ class Retriever:
                 boost_tags=boost_tags,
                 tag_boost_weight=self.config.tag_boost_weight,
             )
-        return chunks[:top_k]
+        primary_chunks = chunks[:top_k]
+        if not include_linked_notes:
+            return primary_chunks
+
+        linked_note_keys = _collect_linked_note_keys(primary_chunks)
+        if not linked_note_keys:
+            return primary_chunks
+
+        primary_note_keys = {
+            str(chunk.metadata.get("note_key"))
+            for chunk in primary_chunks
+            if chunk.metadata.get("note_key")
+        }
+        linked_chunks = self.vector_store.get_chunks_by_note_keys(
+            linked_note_keys[: self.config.max_linked_notes],
+            max_chunks_per_note=self.config.linked_note_chunks_per_note,
+            excluded_note_keys=primary_note_keys,
+        )
+        return primary_chunks + linked_chunks
+
+
+def _collect_linked_note_keys(chunks: list[RetrievedChunk]) -> list[str]:
+    linked_keys: list[str] = []
+    seen: set[str] = set()
+
+    for chunk in chunks:
+        serialized = chunk.metadata.get("linked_note_keys_serialized", "")
+        if not isinstance(serialized, str) or not serialized:
+            continue
+        for note_key in serialized.split("|"):
+            if not note_key or note_key in seen:
+                continue
+            seen.add(note_key)
+            linked_keys.append(note_key)
+
+    return linked_keys

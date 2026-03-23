@@ -15,4 +15,4 @@ For a local RAG system:
 - An embedding model converts text into vectors for semantic search.
 - A vector database stores embeddings for later retrieval.
 
-Local systems are easier to understand when the architecture is modular and the dependencies are minimal.
+Local systems are easier to understand when the architecture is modular and the dependencies are minimal. This complements [[AI Agents]] when building a local research assistant.

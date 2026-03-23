@@ -13,7 +13,7 @@ from embeddings import OllamaEmbeddingClient
 from llm import OllamaChatClient
 from retriever import Retriever
 from saver import prompt_to_save, save_answer
-from utils import RetrievalFilters, RetrievalOptions, get_logger
+from utils import RetrievalFilters, RetrievalOptions, get_logger, make_note_key, normalize_path
 from vault_loader import load_notes
 from vector_store import VectorStore
 
@@ -44,6 +44,7 @@ def main() -> int:
                 path_contains=args.path_contains,
                 tag=args.tag,
                 boost_tags=args.boost_tag,
+                include_linked=args.include_linked,
                 top_k=args.top_k,
                 candidate_count=args.candidate_count,
                 rerank=args.rerank,
@@ -91,6 +92,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Boost notes matching this tag during retrieval. Can be passed multiple times.",
     )
     ask_parser.add_argument(
+        "--include-linked",
+        action="store_true",
+        help="Include context from notes linked by the primary retrieved notes.",
+    )
+    ask_parser.add_argument(
         "--top-k",
         type=int,
         help="Override the number of final chunks used to answer the question",
@@ -116,6 +122,7 @@ def run_index(config: AppConfig, *, reset_store: bool) -> None:
         excluded_paths.append(config.obsidian_output_path)
 
     notes = load_notes(config.obsidian_vault_path, excluded_paths=excluded_paths)
+    _resolve_note_links(notes)
     embedding_client = OllamaEmbeddingClient(config)
     vector_store = VectorStore(config)
     if reset_store:
@@ -184,6 +191,7 @@ def run_ask(
     path_contains: str | None = None,
     tag: str | None = None,
     boost_tags: list[str] | None = None,
+    include_linked: bool = False,
     top_k: int | None = None,
     candidate_count: int | None = None,
     rerank: bool = False,
@@ -215,6 +223,7 @@ def run_ask(
             for tag_value in (boost_tags or [])
             if tag_value.strip()
         ),
+        include_linked_notes=True if include_linked else None,
     )
 
     logger.info("Retrieving relevant notes")
@@ -244,6 +253,22 @@ def _group_chunks_by_note_key(chunks: list) -> dict[str, list]:
     for chunk in chunks:
         grouped_chunks.setdefault(chunk.note_key, []).append(chunk)
     return grouped_chunks
+
+
+def _resolve_note_links(notes: list) -> None:
+    alias_map = _build_note_alias_map(notes)
+
+    for note in notes:
+        own_note_key = make_note_key(note.path)
+        resolved_keys: list[str] = []
+        seen: set[str] = set()
+        for link in note.links:
+            note_key = alias_map.get(link)
+            if not note_key or note_key == own_note_key or note_key in seen:
+                continue
+            seen.add(note_key)
+            resolved_keys.append(note_key)
+        note.linked_note_keys = tuple(resolved_keys)
 
 
 def _add_index_overrides(parser: argparse.ArgumentParser) -> None:
@@ -288,6 +313,26 @@ def _config_with_index_overrides(config: AppConfig, args: argparse.Namespace) ->
         chunk_overlap=chunk_overlap,
         chunking_strategy=chunking_strategy,
     )
+
+
+def _build_note_alias_map(notes: list) -> dict[str, str]:
+    alias_map: dict[str, str] = {}
+
+    for note in notes:
+        note_key = make_note_key(note.path)
+        normalized_path = normalize_path(note.path).lower()
+        aliases = {
+            normalized_path,
+            normalized_path.rsplit(".", 1)[0],
+            normalized_path.split("/")[-1],
+            normalized_path.split("/")[-1].rsplit(".", 1)[0],
+            note.title.strip().lower(),
+        }
+        for alias in aliases:
+            if alias:
+                alias_map[alias] = note_key
+
+    return alias_map
 
 
 if __name__ == "__main__":

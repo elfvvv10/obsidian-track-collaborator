@@ -13,6 +13,6 @@ Key ideas:
 - Good agent systems should admit uncertainty when context is missing.
 - Local-first agent tooling can improve privacy and reduce cloud dependence.
 
-In practical systems, retrieval quality matters as much as model quality.
+In practical systems, retrieval quality matters as much as model quality. See [[Local LLMs]] for the runtime side and [[Personal Knowledge Management]] for how notes support the research workflow.
 
 This note is about #agents and #ai.

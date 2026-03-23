@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from link_parser import extract_obsidian_links
 from metadata_parser import extract_tags, parse_markdown_metadata
 from utils import Note
 
@@ -21,6 +22,7 @@ def load_notes(vault_path: Path, excluded_paths: list[Path] | None = None) -> li
 
         title = _extract_title(file_path, content)
         tags = extract_tags(frontmatter, content)
+        links = extract_obsidian_links(content)
         notes.append(
             Note(
                 path=str(file_path.relative_to(vault_path)),
@@ -28,6 +30,7 @@ def load_notes(vault_path: Path, excluded_paths: list[Path] | None = None) -> li
                 content=content.strip(),
                 frontmatter=frontmatter,
                 tags=tags,
+                links=links,
             )
         )
 

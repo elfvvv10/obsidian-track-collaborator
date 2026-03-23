@@ -73,6 +73,8 @@ class Note:
     content: str
     frontmatter: dict[str, object] | None = None
     tags: tuple[str, ...] = ()
+    links: tuple[str, ...] = ()
+    linked_note_keys: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)
@@ -89,6 +91,7 @@ class Chunk:
     note_key: str = ""
     note_fingerprint: str = ""
     tags: tuple[str, ...] = ()
+    linked_note_keys: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)
@@ -126,3 +129,4 @@ class RetrievalOptions:
     candidate_count: int | None = None
     rerank: bool | None = None
     boost_tags: tuple[str, ...] = ()
+    include_linked_notes: bool | None = None

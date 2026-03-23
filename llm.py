@@ -100,6 +100,7 @@ def build_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
             source_path = chunk.metadata.get("source_path", "unknown")
             heading_context = chunk.metadata.get("heading_context", "")
             heading_line = f" | Section: {heading_context}" if heading_context else ""
+            context_kind = "Linked note" if chunk.metadata.get("linked_context") else "Primary retrieval"
             tag_line = ""
             serialized_tags = chunk.metadata.get("tags_serialized", "")
             if isinstance(serialized_tags, str) and serialized_tags:
@@ -109,6 +110,7 @@ def build_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
                 score_line = f"\nRelevance distance: {chunk.distance_or_score:.4f}"
             parts.append(
                 f"[Source {index}]\n"
+                f"Type: {context_kind}\n"
                 f"Title: {title}{heading_line}\n"
                 f"Path: {source_path}{tag_line}{score_line}\n"
                 f"Content:\n{chunk.text}"
