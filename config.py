@@ -31,6 +31,7 @@ class AppConfig:
     enable_linked_note_expansion: bool = False
     max_linked_notes: int = 2
     linked_note_chunks_per_note: int = 1
+    auto_save_answer: bool = False
     chroma_collection_name: str = "obsidian_notes"
     ollama_timeout_seconds: int = 60
 
@@ -63,6 +64,7 @@ def load_config() -> AppConfig:
     enable_linked_note_expansion = _bool_env("ENABLE_LINKED_NOTE_EXPANSION", default=False)
     max_linked_notes = _required_int_env("MAX_LINKED_NOTES", default=2, minimum=1)
     linked_note_chunks_per_note = _required_int_env("LINKED_NOTE_CHUNKS_PER_NOTE", default=1, minimum=1)
+    auto_save_answer = _bool_env("AUTO_SAVE_ANSWER", default=False)
 
     ensure_directory(output_path)
     ensure_directory(chroma_path)
@@ -87,6 +89,7 @@ def load_config() -> AppConfig:
         enable_linked_note_expansion=enable_linked_note_expansion,
         max_linked_notes=max_linked_notes,
         linked_note_chunks_per_note=linked_note_chunks_per_note,
+        auto_save_answer=auto_save_answer,
     )
 
 

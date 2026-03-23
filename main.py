@@ -48,6 +48,7 @@ def main() -> int:
                 top_k=args.top_k,
                 candidate_count=args.candidate_count,
                 rerank=args.rerank,
+                auto_save=args.auto_save,
             )
         else:
             parser.print_help()
@@ -110,6 +111,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--rerank",
         action="store_true",
         help="Enable simple heuristic reranking for this query",
+    )
+    ask_parser.add_argument(
+        "--auto-save",
+        action="store_true",
+        help="Save the generated answer without prompting.",
     )
     return parser
 
@@ -195,6 +201,7 @@ def run_ask(
     top_k: int | None = None,
     candidate_count: int | None = None,
     rerank: bool = False,
+    auto_save: bool = False,
 ) -> None:
     """Answer a question from the indexed vault."""
     if top_k is not None and top_k < 1:
@@ -243,7 +250,8 @@ def run_ask(
     else:
         print("- No sources retrieved")
 
-    if prompt_to_save():
+    should_save = auto_save or config.auto_save_answer or prompt_to_save()
+    if should_save:
         saved_path = save_answer(config.obsidian_output_path, question, result)
         logger.info("Saved answer to %s", saved_path)
 

@@ -13,6 +13,7 @@ A local-first Python CLI that turns an Obsidian vault into a retrieval-augmented
 - Supports configurable chunk sizing, candidate retrieval depth, and optional reranking
 - Parses frontmatter and stores tags for filtering and boosting
 - Detects Obsidian note links and can optionally include linked-note context
+- Supports an improved saved-note template and optional auto-save
 - Generates grounded answers with a local Ollama chat model
 - Shows source note references in the terminal
 - Optionally saves answers back into the vault as Markdown notes
@@ -126,6 +127,7 @@ TAG_BOOST_WEIGHT=3.0
 ENABLE_LINKED_NOTE_EXPANSION=false
 MAX_LINKED_NOTES=2
 LINKED_NOTE_CHUNKS_PER_NOTE=1
+AUTO_SAVE_ANSWER=false
 ```
 
 Variable notes:
@@ -146,6 +148,7 @@ Variable notes:
 - `ENABLE_LINKED_NOTE_EXPANSION`: include linked note context by default
 - `MAX_LINKED_NOTES`: maximum linked notes to expand per question
 - `LINKED_NOTE_CHUNKS_PER_NOTE`: chunks to include from each linked note
+- `AUTO_SAVE_ANSWER`: save answers automatically without prompting
 
 ## Index Your Notes
 
@@ -186,6 +189,7 @@ python main.py ask "What do my notes say about AI agents?" --path-contains agent
 python main.py ask "What do my notes say about AI agents?" --tag ai
 python main.py ask "What do my notes say about AI agents?" --boost-tag agents --boost-tag local-ai
 python main.py ask "What do my notes say about AI agents?" --include-linked
+python main.py ask "What do my notes say about AI agents?" --auto-save
 python main.py ask "What do my notes say about AI agents?" --top-k 2 --candidate-count 6 --rerank
 ```
 
@@ -205,13 +209,13 @@ After each answer, the CLI prompts:
 Save this answer to your Obsidian output folder? (y/n):
 ```
 
-If you answer `y`, the app creates a Markdown note containing:
+If you answer `y`, or if auto-save is enabled, the app creates a Markdown note containing:
 
-- A title
-- A timestamp
 - The original question
-- The generated answer
-- The sources used
+- A short summary
+- The full answer
+- Key points
+- Sources used
 
 ## Example Workflow
 
