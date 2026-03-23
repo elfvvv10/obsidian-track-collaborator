@@ -7,8 +7,9 @@ from dataclasses import replace
 import streamlit as st
 
 from config import AppConfig, load_config
+from services.ingestion_service import IngestionService
 from services.index_service import IndexService
-from services.models import IndexResponse, QueryRequest, QueryResponse, RetrievalMode
+from services.models import IngestionRequest, IndexResponse, QueryRequest, QueryResponse, RetrievalMode
 from services.query_service import QueryService
 from utils import RetrievalFilters, RetrievalOptions
 
@@ -34,10 +35,15 @@ def main() -> None:
 
     _render_sidebar(base_config, status, status_error)
 
-    ask_tab, index_tab, settings_tab = st.tabs(["Ask", "Index", "Settings / Debug"])
+    ask_tab, ingest_tab, index_tab, settings_tab = st.tabs(
+        ["Ask", "Ingest", "Index", "Settings / Debug"]
+    )
 
     with ask_tab:
         _render_ask_tab(ui_config, services["query_service"], status)
+
+    with ingest_tab:
+        _render_ingest_tab(services["ingestion_service"])
 
     with index_tab:
         _render_index_tab(services["index_service"], status)
@@ -51,6 +57,7 @@ def _get_services(config: AppConfig) -> dict[str, object]:
     return {
         "query_service": QueryService(config),
         "index_service": IndexService(config),
+        "ingestion_service": IngestionService(config),
     }
 
 
@@ -255,6 +262,61 @@ def _render_ask_tab(
         _render_debug_section(response)
 
 
+def _render_ingest_tab(ingestion_service: IngestionService) -> None:
+    st.subheader("Import a Webpage")
+    st.caption(
+        "Use ingestion to save external webpage content into your vault as a normal Markdown note. "
+        "This is separate from query-time web search."
+    )
+
+    st.session_state["ingest_url"] = st.text_input(
+        "Webpage URL",
+        value=st.session_state["ingest_url"],
+        placeholder="https://example.com/article",
+    )
+    st.session_state["ingest_title"] = st.text_input(
+        "Optional note title",
+        value=st.session_state["ingest_title"],
+        help="Override the saved note title and filename slug.",
+    )
+    st.session_state["ingest_index_now"] = st.checkbox(
+        "Index immediately after save",
+        value=st.session_state["ingest_index_now"],
+        help="Run the existing incremental index after creating the note.",
+    )
+
+    if st.button("Ingest Webpage", type="primary"):
+        url = st.session_state["ingest_url"].strip()
+        if not url:
+            st.warning("Enter a webpage URL before starting ingestion.")
+        else:
+            try:
+                response = ingestion_service.ingest_webpage(
+                    IngestionRequest(
+                        source=url,
+                        title_override=st.session_state["ingest_title"].strip() or None,
+                        index_now=st.session_state["ingest_index_now"],
+                    )
+                )
+                st.session_state["last_ingestion_response"] = response
+                st.success(f"Saved webpage note to {response.saved_path}")
+            except Exception as exc:
+                st.session_state["last_ingestion_response"] = None
+                st.error(str(exc))
+
+    response = st.session_state.get("last_ingestion_response")
+    if response is None:
+        return
+
+    st.markdown("### Latest Ingestion")
+    st.write(f"Title: `{response.title}`")
+    st.write(f"Saved path: `{response.saved_path}`")
+    st.write(f"Source type: `{response.source_type}`")
+    st.write(f"Indexed now: `{'yes' if response.index_triggered else 'no'}`")
+    for warning in response.warnings:
+        st.warning(warning)
+
+
 def _render_debug_section(response: QueryResponse) -> None:
     with st.expander("Debug Details", expanded=False):
         metric_cols = st.columns(4)
@@ -394,6 +456,7 @@ def _render_settings_tab(config: AppConfig, status: IndexResponse | None, status
     else:
         st.write(f"Vault path: `{status.vault_path}`")
         st.write(f"Output path: `{status.output_path}`")
+        st.write(f"Webpage ingestion folder: `{config.webpage_ingestion_folder}`")
         st.write(f"Index schema version: `{status.index_version or 'not set'}`")
         st.write(f"Stored chunks: `{status.total_chunks_stored}`")
         st.write(f"Index compatible: `{'yes' if status.index_compatible else 'no'}`")
@@ -441,6 +504,10 @@ def _init_session_state(config: AppConfig) -> None:
         "debug_mode": False,
         "last_query_response": None,
         "last_question": "",
+        "ingest_url": "",
+        "ingest_title": "",
+        "ingest_index_now": config.auto_index_after_ingestion,
+        "last_ingestion_response": None,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)

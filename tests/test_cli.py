@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import main
 from config import AppConfig
+from services.models import IngestionResponse
 from utils import RetrievedChunk
 
 
@@ -150,3 +151,37 @@ class CLITests(unittest.TestCase):
             self.assertEqual(called_options.top_k, 2)
             self.assertEqual(called_options.candidate_count, 4)
             self.assertTrue(called_options.rerank)
+
+    def test_main_ingest_webpage_command_dispatches_to_ingestion_flow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            config = make_config(root)
+            response = IngestionResponse(
+                source="https://example.com/article",
+                source_type="webpage",
+                saved_path=root / "vault" / "ingested_webpages" / "article.md",
+                title="Example Article",
+                index_triggered=True,
+            )
+
+            with patch("main.load_config", return_value=config), patch(
+                "main.IngestionService.ingest_webpage",
+                return_value=response,
+            ) as ingest_mock, patch(
+                "sys.argv",
+                ["main.py", "ingest-webpage", "https://example.com/article", "--title", "Example Article", "--index-now"],
+            ):
+                buffer = io.StringIO()
+                with redirect_stdout(buffer):
+                    exit_code = main.main()
+
+            self.assertEqual(exit_code, 0)
+            request = ingest_mock.call_args.args[0]
+            self.assertEqual(request.source, "https://example.com/article")
+            self.assertEqual(request.title_override, "Example Article")
+            self.assertTrue(request.index_now)
+            output = buffer.getvalue()
+            self.assertIn("Ingestion Complete", output)
+            self.assertIn("Example Article", output)

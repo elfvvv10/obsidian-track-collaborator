@@ -18,6 +18,7 @@ A local-first Python Obsidian RAG assistant that runs through a CLI or a lightwe
 - Shows source note references in the terminal
 - Includes a lightweight local Streamlit UI for asking questions, indexing, and debugging
 - Supports optional external web search as a separate evidence path
+- Supports webpage ingestion as a separate content-import workflow
 - Optionally saves answers back into the vault as Markdown notes
 - Uses incremental indexing to update only changed notes
 - Excludes saved answers in the configured output folder from indexing when that folder lives inside the vault
@@ -47,6 +48,10 @@ Optional web search is handled separately through the service layer:
 
 `Question -> local retrieval path -> optional web-search service -> Ollama chat with separated local/web evidence`
 
+External content ingestion is handled as a separate workflow:
+
+`Webpage URL -> ingestion service -> webpage fetch/extract -> Markdown note in vault -> optional indexing`
+
 The app now also includes a thin service layer so both the CLI and UI can share the same orchestration path without duplicating business logic.
 
 Core modules:
@@ -56,8 +61,10 @@ Core modules:
 - `services/index_service.py`: shared indexing/build flow for CLI and UI
 - `services/query_service.py`: shared query + answer flow for CLI and UI
 - `services/web_search_service.py`: optional external search orchestration
+- `services/ingestion_service.py`: shared external content ingestion orchestration
 - `services/models.py`: structured request/response models for service consumers
 - `services/common.py`: shared service helpers such as link resolution and index checks
+- `services/webpage_ingestion_service.py`: webpage fetch, text extraction, and note creation
 - `streamlit_app.py`: lightweight local UI
 - `vault_loader.py`: Markdown vault scanning
 - `chunker.py`: configurable Markdown-aware and sentence-aware chunk creation
@@ -148,6 +155,10 @@ WEB_SEARCH_PROVIDER=wikipedia
 WEB_SEARCH_API_URL=
 WEB_SEARCH_MAX_RESULTS=3
 WEB_SEARCH_TIMEOUT_SECONDS=10
+WEBPAGE_INGESTION_FOLDER=ingested_webpages
+AUTO_INDEX_AFTER_INGESTION=false
+WEBPAGE_FETCH_TIMEOUT_SECONDS=15
+WEBPAGE_FETCH_USER_AGENT=obsidian-rag-assistant/1.0
 ```
 
 Variable notes:
@@ -173,6 +184,10 @@ Variable notes:
 - `WEB_SEARCH_API_URL`: optional provider endpoint override. Leave blank to use the provider default.
 - `WEB_SEARCH_MAX_RESULTS`: maximum number of external results to include
 - `WEB_SEARCH_TIMEOUT_SECONDS`: timeout for external web search requests
+- `WEBPAGE_INGESTION_FOLDER`: vault-relative folder where ingested webpages are saved
+- `AUTO_INDEX_AFTER_INGESTION`: automatically run incremental indexing after a successful ingestion
+- `WEBPAGE_FETCH_TIMEOUT_SECONDS`: timeout for webpage fetch requests
+- `WEBPAGE_FETCH_USER_AGENT`: user-agent string used for webpage ingestion requests
 
 ## Index Your Notes
 
@@ -236,6 +251,26 @@ The app will:
 When web search is used, local note sources and web sources are labeled separately in both the CLI and UI.
 The default provider is now Wikipedia search because it is a more reliable no-key option than the previous DuckDuckGo-only path.
 
+## Ingest Webpages
+
+Webpage ingestion is an import workflow, not a query-time retrieval feature. It fetches a page, extracts readable content, saves that content into your vault as Markdown, and can then use the normal indexing pipeline so the page becomes part of your local knowledge base.
+
+Run it from the CLI:
+
+```bash
+python main.py ingest-webpage "https://example.com/article"
+python main.py ingest-webpage "https://example.com/article" --title "Example Article" --index-now
+```
+
+Saved webpage notes go into `WEBPAGE_INGESTION_FOLDER` inside your vault, which defaults to `ingested_webpages/`.
+
+Each saved note includes:
+
+- page title
+- source URL
+- ingestion timestamp
+- extracted readable content
+
 ## Run the Local UI
 
 The Streamlit UI uses the same service layer as the CLI, so indexing and question-answering behavior stay aligned.
@@ -246,10 +281,11 @@ Start the UI with:
 streamlit run streamlit_app.py
 ```
 
-The UI includes three main areas:
+The UI includes four main areas:
 
 - `Sidebar`: query filters and retrieval controls such as folder, path text, tag, top-k, reranking, linked-note expansion, auto-save, and retrieval mode
 - `Ask`: question input, answer display, separate local/web sources, save actions, linked-note context, and an optional debug view of retrieval stages
+- `Ingest`: paste a webpage URL, save it into the vault, and optionally trigger indexing right away
 - `Index`: readiness messages plus build and rebuild actions
 - `Settings / Debug`: active models, paths, app readiness, index compatibility, and the debug toggle
 
@@ -313,10 +349,12 @@ When `OBSIDIAN_OUTPUT_PATH` points to a folder inside the vault, saved answer no
 ├── utils.py
 ├── services/
 │   ├── common.py
+│   ├── ingestion_service.py
 │   ├── index_service.py
 │   ├── models.py
 │   ├── query_service.py
-│   └── web_search_service.py
+│   ├── web_search_service.py
+│   └── webpage_ingestion_service.py
 ├── requirements.txt
 ├── .env.example
 ├── README.md
@@ -327,6 +365,7 @@ When `OBSIDIAN_OUTPUT_PATH` points to a folder inside the vault, saved answer no
 The `tests/` directory includes:
 
 - mocked client and CLI tests
+- mocked ingestion tests for webpage fetch and save behavior
 - local module and smoke tests
 - orchestration-level integration tests using temporary vaults and real local indexing/retrieval flow
 - service-layer tests for UI-facing query and status responses
@@ -402,6 +441,19 @@ Fix:
 - Verify `WEB_SEARCH_API_URL` if you overrode the default
 - Retry in `local_only` mode if you want to stay fully local
 
+### Webpage ingestion fails
+
+Symptom:
+
+- The app says the webpage could not be fetched or parsed.
+
+Fix:
+
+- Check that the URL is valid and publicly reachable
+- Retry the page in a browser to confirm it is available
+- Some sites require JavaScript-heavy rendering or block simple fetch clients
+- Increase `WEBPAGE_FETCH_TIMEOUT_SECONDS` if the site is slow to respond
+
 ### Retrieval filters return no results
 
 Symptom:
@@ -438,6 +490,7 @@ This can happen after retrieval-relevant schema changes such as new metadata fie
 - Web search is optional and external, so its availability and result quality depend on the configured provider
 - The default provider is Wikipedia search, which is more reliable than the previous DuckDuckGo-only approach but is still narrower than a full general web search engine
 - External web evidence is kept separate from local notes, but answer quality still depends on prompt quality and source quality
+- Webpage ingestion uses lightweight HTML extraction, so some pages with heavy JavaScript rendering or aggressive boilerplate may not import cleanly
 - Automated tests are strong locally, but live Ollama behavior is still mostly verified manually
 - Prompting is intentionally simple
 
@@ -449,3 +502,4 @@ This can happen after retrieval-relevant schema changes such as new metadata fie
 - Conversation history
 - Richer UI features such as persistent sessions and better source inspection
 - Optional live integration checks for Ollama and Chroma
+- Additional ingestion sources such as YouTube transcripts through the same ingestion service layer

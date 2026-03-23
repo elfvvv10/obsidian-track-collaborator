@@ -36,6 +36,10 @@ class AppConfig:
     web_search_api_url: str = ""
     web_search_max_results: int = 3
     web_search_timeout_seconds: int = 10
+    webpage_ingestion_folder: str = "ingested_webpages"
+    auto_index_after_ingestion: bool = False
+    webpage_fetch_timeout_seconds: int = 15
+    webpage_fetch_user_agent: str = "obsidian-rag-assistant/1.0"
     chroma_collection_name: str = "obsidian_notes"
     ollama_timeout_seconds: int = 60
 
@@ -77,6 +81,13 @@ def load_config() -> AppConfig:
     web_search_api_url = os.getenv("WEB_SEARCH_API_URL", "").strip().rstrip("/")
     web_search_max_results = _required_int_env("WEB_SEARCH_MAX_RESULTS", default=3, minimum=1)
     web_search_timeout_seconds = _required_int_env("WEB_SEARCH_TIMEOUT_SECONDS", default=10, minimum=1)
+    webpage_ingestion_folder = _relative_folder_env("WEBPAGE_INGESTION_FOLDER", default="ingested_webpages")
+    auto_index_after_ingestion = _bool_env("AUTO_INDEX_AFTER_INGESTION", default=False)
+    webpage_fetch_timeout_seconds = _required_int_env("WEBPAGE_FETCH_TIMEOUT_SECONDS", default=15, minimum=1)
+    webpage_fetch_user_agent = os.getenv(
+        "WEBPAGE_FETCH_USER_AGENT",
+        "obsidian-rag-assistant/1.0",
+    ).strip()
 
     ensure_directory(output_path)
     ensure_directory(chroma_path)
@@ -106,6 +117,10 @@ def load_config() -> AppConfig:
         web_search_api_url=web_search_api_url,
         web_search_max_results=web_search_max_results,
         web_search_timeout_seconds=web_search_timeout_seconds,
+        webpage_ingestion_folder=webpage_ingestion_folder,
+        auto_index_after_ingestion=auto_index_after_ingestion,
+        webpage_fetch_timeout_seconds=webpage_fetch_timeout_seconds,
+        webpage_fetch_user_agent=webpage_fetch_user_agent,
     )
 
 
@@ -159,4 +174,16 @@ def _required_float_env(name: str, *, default: float, minimum: float) -> float:
 
     if value < minimum:
         raise ValueError(f"{name} must be at least {minimum}. Received: {value}")
+    return value
+
+
+def _relative_folder_env(name: str, *, default: str) -> str:
+    value = os.getenv(name, default).strip().replace("\\", "/").strip("/")
+    if not value:
+        raise ValueError(f"{name} must not be empty.")
+    path = Path(value)
+    if path.is_absolute():
+        raise ValueError(f"{name} must be a vault-relative folder path. Received: {value}")
+    if ".." in path.parts:
+        raise ValueError(f"{name} must stay inside the vault. Received: {value}")
     return value

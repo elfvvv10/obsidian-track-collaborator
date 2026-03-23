@@ -139,3 +139,24 @@ class IndexResponse:
     ollama_status_message: str = ""
     ready: bool = False
     index_version: str = ""
+
+
+@dataclass(slots=True)
+class IngestionRequest:
+    """Structured request for importing an external source into the vault."""
+
+    source: str
+    title_override: str | None = None
+    index_now: bool | None = None
+
+
+@dataclass(slots=True)
+class IngestionResponse:
+    """Structured response for an ingestion workflow."""
+
+    source: str
+    source_type: str
+    saved_path: Path
+    title: str
+    index_triggered: bool = False
+    warnings: list[str] = field(default_factory=list)

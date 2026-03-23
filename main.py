@@ -12,8 +12,9 @@ from retriever import Retriever
 from config import AppConfig, load_config
 from saver import prompt_to_save, save_answer
 from services.common import build_note_alias_map, ensure_index_compatible, resolve_note_links
+from services.ingestion_service import IngestionService
 from services.index_service import IndexService
-from services.models import QueryRequest, RetrievalMode
+from services.models import IngestionRequest, QueryRequest, RetrievalMode
 from services.query_service import QueryService
 from services.web_search_service import WebSearchService
 from utils import Note
@@ -53,6 +54,13 @@ def main() -> int:
                 auto_save=args.auto_save,
                 retrieval_mode=args.retrieval_mode,
             )
+        elif args.command == "ingest-webpage":
+            run_ingest_webpage(
+                config,
+                args.url,
+                title=args.title,
+                index_now=args.index_now,
+            )
         else:
             parser.print_help()
             return 1
@@ -70,6 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("index", help="Build the vector index from the configured vault")
     rebuild_parser = subparsers.add_parser("rebuild", help="Clear and rebuild the vector index")
+    ingest_parser = subparsers.add_parser("ingest-webpage", help="Import a webpage into the vault")
 
     index_parser = subparsers.choices["index"]
     _add_index_overrides(index_parser)
@@ -125,6 +134,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[mode.value for mode in RetrievalMode],
         default=RetrievalMode.LOCAL_ONLY.value,
         help="Choose whether to use only local notes, automatic web fallback, or hybrid local+web retrieval.",
+    )
+    ingest_parser.add_argument("url", help="Webpage URL to ingest into the vault")
+    ingest_parser.add_argument("--title", help="Optional title override for the saved note")
+    ingest_parser.add_argument(
+        "--index-now",
+        action="store_true",
+        help="Run incremental indexing immediately after saving the ingested note.",
     )
     return parser
 
@@ -214,6 +230,31 @@ def run_ask(
     elif prompt_to_save():
         saved_response = query_service.save(question, response.answer_result)
         logger.info("Saved answer to %s", saved_response.saved_path)
+
+
+def run_ingest_webpage(
+    config: AppConfig,
+    url: str,
+    *,
+    title: str | None = None,
+    index_now: bool = False,
+) -> None:
+    """Import a webpage into the vault and optionally index it."""
+    response = IngestionService(config).ingest_webpage(
+        IngestionRequest(
+            source=url,
+            title_override=title,
+            index_now=True if index_now else None,
+        )
+    )
+
+    print("\nIngestion Complete\n------------------")
+    print(f"Title: {response.title}")
+    print(f"Saved Path: {response.saved_path}")
+    print(f"Source Type: {response.source_type}")
+    print(f"Indexed Now: {'yes' if response.index_triggered else 'no'}")
+    for warning in response.warnings:
+        print(f"\nWarning: {warning}")
 
 
 def _add_index_overrides(parser: argparse.ArgumentParser) -> None:
