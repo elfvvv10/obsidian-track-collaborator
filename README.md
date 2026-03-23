@@ -220,11 +220,12 @@ Start the UI with:
 streamlit run streamlit_app.py
 ```
 
-The UI includes three sections:
+The UI includes three main areas:
 
-- `Ask`: question input, answer display, sources, linked-note context, and an optional debug view of retrieved chunks
-- `Index`: build and rebuild actions with user-friendly status messages
-- `Settings / Debug`: active models, top-k control, reranking toggle, linked-note toggle, auto-save toggle, and retrieval filters
+- `Sidebar`: query filters and retrieval controls such as folder, path text, tag, top-k, reranking, linked-note expansion, and auto-save
+- `Ask`: question input, answer display, sources, save actions, linked-note context, and an optional debug view of retrieval stages
+- `Index`: readiness messages plus build and rebuild actions
+- `Settings / Debug`: active models, paths, app readiness, index compatibility, and the debug toggle
 
 The UI is local-only and does not add any cloud services, authentication, or background job system.
 
@@ -245,6 +246,8 @@ If you answer `y`, or if auto-save is enabled, the app creates a Markdown note c
 - Sources used
 
 If you save the same question repeatedly, the app keeps existing notes and creates deterministic suffixes such as `-answer-2.md`, `-answer-3.md`, and so on.
+
+In the Streamlit UI, you can also provide an optional title override before saving. That title is used for the note heading and filename slug, while the underlying save logic stays the same.
 
 ## Example Workflow
 
@@ -298,6 +301,7 @@ The `tests/` directory includes:
 - mocked client and CLI tests
 - local module and smoke tests
 - orchestration-level integration tests using temporary vaults and real local indexing/retrieval flow
+- service-layer tests for UI-facing query and status responses
 - phase-focused tests for retrieval, metadata, links, and save-back behavior
 
 ## Troubleshooting
@@ -388,6 +392,7 @@ This can happen after retrieval-relevant schema changes such as new metadata fie
 - Chunking is Markdown-aware but still heuristic rather than token-aware
 - Metadata filters are still intentionally simple: folder, path text, and tag-based controls only
 - The Streamlit UI is intentionally lightweight and does not yet include persistent chat history or advanced source inspection workflows
+- The UI exposes retrieval/debug structure intended to support future features, but it is still intentionally simple
 - Automated tests are strong locally, but live Ollama behavior is still mostly verified manually
 - Prompting is intentionally simple
 

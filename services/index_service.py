@@ -5,7 +5,7 @@ from __future__ import annotations
 from config import AppConfig
 from chunker import chunk_notes
 from embeddings import OllamaEmbeddingClient
-from services.common import ensure_index_compatible, resolve_note_links
+from services.common import check_ollama_status, ensure_index_compatible, resolve_note_links
 from services.models import IndexResponse
 from utils import Chunk, Note, get_logger
 from vault_loader import load_notes
@@ -49,6 +49,12 @@ class IndexService:
                     total_chunks_stored=vector_store.count(),
                     reset_performed=reset_store,
                     warnings=["Vault is empty; removed previously indexed notes."],
+                    vault_path=self.config.obsidian_vault_path,
+                    output_path=self.config.obsidian_output_path,
+                    chat_model=self.config.ollama_chat_model,
+                    embedding_model=self.config.ollama_embedding_model,
+                    index_version=vector_store.read_index_version(),
+                    ready=vector_store.count() > 0 and vector_store.is_index_compatible(),
                 )
             raise RuntimeError("No markdown notes were found in the configured vault.")
 
@@ -79,6 +85,12 @@ class IndexService:
                 total_chunks_stored=vector_store.count(),
                 reset_performed=reset_store,
                 up_to_date=True,
+                vault_path=self.config.obsidian_vault_path,
+                output_path=self.config.obsidian_output_path,
+                chat_model=self.config.ollama_chat_model,
+                embedding_model=self.config.ollama_embedding_model,
+                index_version=vector_store.read_index_version(),
+                ready=vector_store.count() > 0 and vector_store.is_index_compatible(),
             )
 
         logger.info(
@@ -98,14 +110,34 @@ class IndexService:
             deleted_notes_removed=len(deleted_note_keys),
             total_chunks_stored=vector_store.count(),
             reset_performed=reset_store,
+            vault_path=self.config.obsidian_vault_path,
+            output_path=self.config.obsidian_output_path,
+            chat_model=self.config.ollama_chat_model,
+            embedding_model=self.config.ollama_embedding_model,
+            index_version=vector_store.read_index_version(),
+            ready=vector_store.count() > 0 and vector_store.is_index_compatible(),
         )
 
     def get_status(self) -> IndexResponse:
         """Return lightweight index status for CLI or UI display."""
         vector_store = VectorStore(self.config)
+        ollama_reachable, ollama_status_message = check_ollama_status(
+            self.config.ollama_base_url,
+            timeout_seconds=min(self.config.ollama_timeout_seconds, 5),
+        )
+        chunk_count = vector_store.count()
+        index_compatible = vector_store.is_index_compatible()
         return IndexResponse(
-            total_chunks_stored=vector_store.count(),
-            index_compatible=vector_store.is_index_compatible(),
+            total_chunks_stored=chunk_count,
+            index_compatible=index_compatible,
+            vault_path=self.config.obsidian_vault_path,
+            output_path=self.config.obsidian_output_path,
+            chat_model=self.config.ollama_chat_model,
+            embedding_model=self.config.ollama_embedding_model,
+            ollama_reachable=ollama_reachable,
+            ollama_status_message=ollama_status_message,
+            ready=chunk_count > 0 and index_compatible,
+            index_version=vector_store.read_index_version(),
         )
 
 

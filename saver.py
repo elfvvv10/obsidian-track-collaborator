@@ -14,27 +14,35 @@ def prompt_to_save() -> bool:
     return response in {"y", "yes"}
 
 
-def save_answer(output_path: Path, question: str, result: AnswerResult) -> Path:
+def save_answer(
+    output_path: Path,
+    question: str,
+    result: AnswerResult,
+    *,
+    title_override: str | None = None,
+) -> Path:
     """Write the answer and sources to a markdown file."""
     ensure_directory(output_path)
 
     date_prefix = current_timestamp().split(" ")[0]
-    file_name = f"{date_prefix}-{slugify(question, max_length=40)}-answer.md"
+    title_for_slug = title_override.strip() if title_override and title_override.strip() else question
+    file_name = f"{date_prefix}-{slugify(title_for_slug, max_length=40)}-answer.md"
     destination = _unique_destination(output_path / file_name)
 
-    body = _build_markdown(question, result)
+    body = _build_markdown(question, result, title_override=title_override)
     destination.write_text(body, encoding="utf-8")
     return destination
 
 
-def _build_markdown(question: str, result: AnswerResult) -> str:
+def _build_markdown(question: str, result: AnswerResult, *, title_override: str | None = None) -> str:
     sources = "\n".join(f"- {source}" for source in result.sources) or "- No sources available"
     summary = _build_summary(result.answer)
     key_points = _build_key_points(result.answer)
     key_points_block = "\n".join(f"- {point}" for point in key_points) or "- No key points extracted"
+    title = title_override.strip() if title_override and title_override.strip() else "Research Answer"
 
     return (
-        f"# Research Answer\n\n"
+        f"# {title}\n\n"
         f"**Timestamp:** {current_timestamp()}\n\n"
         f"## Question\n\n"
         f"{question}\n\n"

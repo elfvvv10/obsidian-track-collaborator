@@ -164,7 +164,13 @@ def run_ask(
         ),
         include_linked_notes=True if include_linked else None,
     )
-    query_service = QueryService(config)
+    query_service = QueryService(
+        config,
+        embedding_client_cls=OllamaEmbeddingClient,
+        chat_client_cls=OllamaChatClient,
+        retriever_cls=Retriever,
+        capture_debug_trace=False,
+    )
     request = QueryRequest(
         question=question,
         filters=filters,

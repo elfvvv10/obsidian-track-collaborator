@@ -8,7 +8,7 @@ import streamlit as st
 
 from config import AppConfig, load_config
 from services.index_service import IndexService
-from services.models import QueryRequest
+from services.models import IndexResponse, QueryRequest, QueryResponse
 from services.query_service import QueryService
 from utils import RetrievalFilters, RetrievalOptions
 
@@ -29,27 +29,136 @@ def main() -> None:
 
     _init_session_state(base_config)
     ui_config = _config_from_session(base_config)
+    services = _get_services(ui_config)
+    status = _safe_get_status(services["index_service"])
+
+    _render_sidebar(base_config, status)
 
     ask_tab, index_tab, settings_tab = st.tabs(["Ask", "Index", "Settings / Debug"])
 
     with ask_tab:
-        _render_ask_tab(ui_config)
+        _render_ask_tab(ui_config, services["query_service"], status)
 
     with index_tab:
-        _render_index_tab(ui_config)
+        _render_index_tab(services["index_service"], status)
 
     with settings_tab:
-        _render_settings_tab(base_config)
+        _render_settings_tab(base_config, status)
 
 
-def _render_ask_tab(config: AppConfig) -> None:
-    question = st.text_area(
-        "Question",
-        value=st.session_state.get("question", ""),
-        placeholder="What do my notes say about AI agents?",
-        height=120,
-    )
-    st.session_state["question"] = question
+def _get_services(config: AppConfig) -> dict[str, object]:
+    """Construct shared services for the current UI config."""
+    return {
+        "query_service": QueryService(config),
+        "index_service": IndexService(config),
+    }
+
+
+def _safe_get_status(index_service: IndexService) -> IndexResponse | None:
+    try:
+        return index_service.get_status()
+    except Exception:
+        return None
+
+
+def _render_sidebar(config: AppConfig, status: IndexResponse | None) -> None:
+    with st.sidebar:
+        st.header("Ask Controls")
+        st.session_state["folder_filter"] = st.text_input(
+            "Folder filter",
+            value=st.session_state["folder_filter"],
+            help="Only search notes from this vault-relative folder.",
+        )
+        st.session_state["path_filter"] = st.text_input(
+            "Path contains",
+            value=st.session_state["path_filter"],
+            help="Only search notes whose path contains this text.",
+        )
+        st.session_state["tag_filter"] = st.text_input(
+            "Tag filter",
+            value=st.session_state["tag_filter"],
+            help="Only search notes with this tag.",
+        )
+        st.session_state["top_k"] = int(
+            st.number_input(
+                "Top-k",
+                min_value=1,
+                max_value=20,
+                value=int(st.session_state["top_k"]),
+                help="How many final chunks to use when answering.",
+            )
+        )
+        st.session_state["enable_reranking"] = st.checkbox(
+            "Enable reranking",
+            value=st.session_state["enable_reranking"],
+        )
+        st.session_state["include_linked"] = st.checkbox(
+            "Include linked-note context",
+            value=st.session_state["include_linked"],
+        )
+        st.session_state["auto_save"] = st.checkbox(
+            "Auto-save answers",
+            value=st.session_state["auto_save"],
+        )
+
+        st.divider()
+        st.subheader("App Readiness")
+        if status is None:
+            st.warning("Status is currently unavailable.")
+        else:
+            if status.ready:
+                st.success("Index is ready for questions.")
+            elif status.total_chunks_stored == 0:
+                st.info("No indexed chunks yet. Build the index first.")
+            elif not status.index_compatible:
+                st.warning("Index exists but needs a rebuild.")
+            else:
+                st.info("Index is present, but readiness is incomplete.")
+
+            if status.ollama_reachable is False:
+                st.error(status.ollama_status_message)
+            elif status.ollama_reachable is True:
+                st.caption(status.ollama_status_message)
+            else:
+                st.caption("Ollama reachability has not been checked yet.")
+
+            st.caption(f"Stored chunks: {status.total_chunks_stored}")
+            st.caption(f"Chat model: {config.ollama_chat_model}")
+            st.caption(f"Embedding model: {config.ollama_embedding_model}")
+
+
+def _render_ask_tab(
+    config: AppConfig,
+    query_service: QueryService,
+    status: IndexResponse | None,
+) -> None:
+    if status is not None:
+        if status.total_chunks_stored == 0:
+            st.info("Build the index in the Index tab before asking questions.")
+        elif not status.index_compatible:
+            st.warning("The local index is out of date. Rebuild it from the Index tab.")
+
+    question_col, save_col = st.columns([3, 2])
+    with question_col:
+        question = st.text_area(
+            "Question",
+            value=st.session_state.get("question", ""),
+            placeholder="What do my notes say about AI agents?",
+            height=120,
+        )
+        st.session_state["question"] = question
+
+    with save_col:
+        st.markdown("### Save Options")
+        st.session_state["save_title"] = st.text_input(
+            "Optional note title",
+            value=st.session_state["save_title"],
+            help="Override the saved note title and filename slug.",
+        )
+        if st.session_state.get("last_query_response") and st.session_state["last_query_response"].has_saved:
+            st.success(f"Saved to {st.session_state['last_query_response'].saved_path}")
+        else:
+            st.caption("You can save the current answer after asking a question.")
 
     ask_clicked = st.button("Ask", type="primary")
     if ask_clicked:
@@ -59,19 +168,12 @@ def _render_ask_tab(config: AppConfig) -> None:
             try:
                 request = QueryRequest(
                     question=question.strip(),
-                    filters=RetrievalFilters(
-                        tag=st.session_state["tag_filter"].strip().lstrip("#").lower() or None,
-                        folder=st.session_state["folder_filter"].strip().strip("/") or None,
-                        path_contains=st.session_state["path_filter"].strip().lower() or None,
-                    ),
-                    options=RetrievalOptions(
-                        top_k=st.session_state["top_k"],
-                        rerank=st.session_state["enable_reranking"],
-                        include_linked_notes=st.session_state["include_linked"],
-                    ),
+                    filters=_current_filters(),
+                    options=_current_options(),
                     auto_save=st.session_state["auto_save"],
+                    save_title=st.session_state["save_title"].strip() or None,
                 )
-                response = QueryService(config).ask(request)
+                response = query_service.ask(request)
                 st.session_state["last_query_response"] = response
                 st.session_state["last_question"] = question.strip()
             except Exception as exc:
@@ -82,118 +184,194 @@ def _render_ask_tab(config: AppConfig) -> None:
     if response is None:
         return
 
-    if response.warnings:
-        for warning in response.warnings:
-            st.warning(warning)
+    for warning in response.warnings:
+        st.warning(warning)
 
-    st.subheader("Answer")
-    st.write(response.answer)
-
-    st.subheader("Sources")
-    if response.sources:
-        for source in response.sources:
-            st.write(f"- {source}")
-    else:
-        st.write("No sources retrieved.")
+    summary_col, sources_col = st.columns([3, 2])
+    with summary_col:
+        st.subheader("Answer")
+        st.write(response.answer)
+    with sources_col:
+        st.subheader("Sources")
+        if response.sources:
+            for source in response.sources:
+                st.write(f"- {source}")
+        else:
+            st.write("No sources retrieved.")
 
     if response.linked_context_chunks:
-        st.subheader("Linked Note Context")
-        linked_titles = sorted(
-            {
-                f"{chunk.metadata.get('note_title', 'Untitled')} ({chunk.metadata.get('source_path', 'unknown')})"
-                for chunk in response.linked_context_chunks
-            }
-        )
-        for linked_title in linked_titles:
-            st.write(f"- {linked_title}")
+        with st.expander("Linked Note Context Used", expanded=False):
+            linked_titles = sorted(
+                {
+                    f"{chunk.metadata.get('note_title', 'Untitled')} ({chunk.metadata.get('source_path', 'unknown')})"
+                    for chunk in response.linked_context_chunks
+                }
+            )
+            for linked_title in linked_titles:
+                st.write(f"- {linked_title}")
 
-    if response.saved_path is not None:
-        st.success(f"Saved answer to {response.saved_path}")
-    elif st.button("Save To Vault"):
+    save_disabled = response.has_saved or not response.retrieved_chunks
+    save_help = "This answer has already been saved." if response.has_saved else None
+    if st.button("Save To Vault", disabled=save_disabled, help=save_help):
         try:
-            saved_response = QueryService(config).save(
+            saved_response = query_service.save(
                 st.session_state.get("last_question", question.strip()),
                 response.answer_result,
+                title_override=st.session_state["save_title"].strip() or None,
             )
+            saved_response.debug = response.debug
             st.session_state["last_query_response"] = saved_response
             st.success(f"Saved answer to {saved_response.saved_path}")
         except Exception as exc:
             st.error(str(exc))
 
     if st.session_state["debug_mode"]:
-        with st.expander("Debug Details", expanded=False):
-            st.write("Retrieved Chunks")
-            for index, chunk in enumerate(response.retrieved_chunks, start=1):
-                st.markdown(f"**Chunk {index}**")
-                st.json(
-                    {
-                        "source_path": chunk.metadata.get("source_path"),
-                        "note_title": chunk.metadata.get("note_title"),
-                        "heading_context": chunk.metadata.get("heading_context"),
-                        "distance_or_score": chunk.distance_or_score,
-                        "linked_context": chunk.metadata.get("linked_context", False),
-                        "tags_serialized": chunk.metadata.get("tags_serialized", ""),
-                    }
-                )
-                st.code(chunk.text)
+        _render_debug_section(response)
 
 
-def _render_index_tab(config: AppConfig) -> None:
-    index_service = IndexService(config)
-    try:
-        status = index_service.get_status()
-        st.write(f"Stored chunks: {status.total_chunks_stored}")
-        st.write(f"Index compatible: {'Yes' if status.index_compatible else 'No'}")
-    except Exception as exc:
-        st.warning(str(exc))
+def _render_debug_section(response: QueryResponse) -> None:
+    with st.expander("Debug Details", expanded=False):
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("Initial candidates", len(response.debug.initial_candidates))
+        metric_cols[1].metric("Primary chunks", len(response.debug.primary_chunks))
+        metric_cols[2].metric("Final chunks", len(response.retrieved_chunks))
+        metric_cols[3].metric("Reranking changed order", "Yes" if response.debug.reranking_changed else "No")
 
-    col1, col2 = st.columns(2)
-    if col1.button("Build Index", type="primary"):
+        st.markdown("**Retrieval Settings**")
+        st.json(
+            {
+                "filters": {
+                    "folder": response.debug.retrieval_filters.folder,
+                    "path_contains": response.debug.retrieval_filters.path_contains,
+                    "tag": response.debug.retrieval_filters.tag,
+                },
+                "options": {
+                    "top_k": response.debug.retrieval_options.top_k,
+                    "candidate_count": response.debug.retrieval_options.candidate_count,
+                    "rerank": response.debug.retrieval_options.rerank,
+                    "boost_tags": list(response.debug.retrieval_options.boost_tags),
+                    "include_linked_notes": response.debug.retrieval_options.include_linked_notes,
+                },
+                "reranking_applied": response.debug.reranking_applied,
+            }
+        )
+
+        _render_chunk_list("Initial Retrieval Candidates", response.debug.initial_candidates)
+        _render_chunk_list("Final Selected Chunks", response.retrieved_chunks)
+
+
+def _render_chunk_list(title: str, chunks: list) -> None:
+    st.markdown(f"**{title}**")
+    if not chunks:
+        st.caption("None")
+        return
+    for index, chunk in enumerate(chunks, start=1):
+        st.markdown(f"**Chunk {index}**")
+        st.json(
+            {
+                "source_path": chunk.metadata.get("source_path"),
+                "note_title": chunk.metadata.get("note_title"),
+                "heading_context": chunk.metadata.get("heading_context"),
+                "distance_or_score": chunk.distance_or_score,
+                "linked_context": chunk.metadata.get("linked_context", False),
+                "tags_serialized": chunk.metadata.get("tags_serialized", ""),
+            }
+        )
+        st.code(chunk.text)
+
+
+def _render_index_tab(index_service: IndexService, status: IndexResponse | None) -> None:
+    st.subheader("Index Status")
+    if status is None:
+        st.warning("Unable to read index status right now.")
+    else:
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("Stored chunks", status.total_chunks_stored)
+        metric_cols[1].metric("Index compatible", "Yes" if status.index_compatible else "No")
+        metric_cols[2].metric("Ready", "Yes" if status.ready else "No")
+        metric_cols[3].metric("Ollama", "Reachable" if status.ollama_reachable else "Unavailable")
+
+        if status.ready:
+            st.success("The assistant is ready to answer questions.")
+        elif status.total_chunks_stored == 0:
+            st.info("No indexed chunks found yet. Build the index to get started.")
+        elif not status.index_compatible:
+            st.warning("The existing index needs a rebuild before it should be used.")
+
+        if status.ollama_status_message:
+            if status.ollama_reachable:
+                st.caption(status.ollama_status_message)
+            else:
+                st.warning(status.ollama_status_message)
+
+    action_col1, action_col2 = st.columns(2)
+    if action_col1.button("Build Index", type="primary"):
         try:
             response = index_service.index(reset_store=False)
-            st.success(
-                f"Index complete. Notes: {response.notes_loaded}, "
-                f"chunks created: {response.chunks_created}, chunks indexed: {response.chunks_indexed}, "
-                f"stored chunks: {response.total_chunks_stored}"
-            )
-            for warning in response.warnings:
-                st.warning(warning)
+            _show_index_result("Index complete", response)
         except Exception as exc:
             st.error(str(exc))
 
-    if col2.button("Rebuild Index"):
+    if action_col2.button("Rebuild Index"):
         try:
             response = index_service.index(reset_store=True)
-            st.success(
-                f"Rebuild complete. Notes: {response.notes_loaded}, "
-                f"chunks created: {response.chunks_created}, chunks indexed: {response.chunks_indexed}, "
-                f"stored chunks: {response.total_chunks_stored}"
-            )
-            for warning in response.warnings:
-                st.warning(warning)
+            _show_index_result("Rebuild complete", response)
         except Exception as exc:
             st.error(str(exc))
 
 
-def _render_settings_tab(config: AppConfig) -> None:
-    st.subheader("Active Configuration")
-    st.write(f"Chat model: `{config.ollama_chat_model}`")
-    st.write(f"Embedding model: `{config.ollama_embedding_model}`")
-    st.write(f"Top-k: `{st.session_state['top_k']}`")
-    st.write(f"Reranking: `{'on' if st.session_state['enable_reranking'] else 'off'}`")
-    st.write(f"Linked-note expansion: `{'on' if st.session_state['include_linked'] else 'off'}`")
-    st.write(f"Auto-save: `{'on' if st.session_state['auto_save'] else 'off'}`")
-    st.write(f"Debug mode: `{'on' if st.session_state['debug_mode'] else 'off'}`")
+def _show_index_result(title: str, response: IndexResponse) -> None:
+    st.success(
+        f"{title}. Notes: {response.notes_loaded}, chunks created: {response.chunks_created}, "
+        f"chunks indexed: {response.chunks_indexed}, stored chunks: {response.total_chunks_stored}"
+    )
+    if response.up_to_date:
+        st.info("The index was already up to date.")
+    for warning in response.warnings:
+        st.warning(warning)
 
-    st.markdown("### Interactive Controls")
-    st.session_state["folder_filter"] = st.text_input("Folder filter", value=st.session_state["folder_filter"])
-    st.session_state["path_filter"] = st.text_input("Path contains", value=st.session_state["path_filter"])
-    st.session_state["tag_filter"] = st.text_input("Tag filter", value=st.session_state["tag_filter"])
-    st.session_state["top_k"] = st.number_input("Top-k", min_value=1, max_value=20, value=st.session_state["top_k"])
-    st.session_state["enable_reranking"] = st.checkbox("Enable reranking", value=st.session_state["enable_reranking"])
-    st.session_state["include_linked"] = st.checkbox("Include linked-note context", value=st.session_state["include_linked"])
-    st.session_state["auto_save"] = st.checkbox("Auto-save answers", value=st.session_state["auto_save"])
-    st.session_state["debug_mode"] = st.checkbox("Show debug details", value=st.session_state["debug_mode"])
+
+def _render_settings_tab(config: AppConfig, status: IndexResponse | None) -> None:
+    st.subheader("Active Models")
+    model_cols = st.columns(2)
+    model_cols[0].write(f"Chat model: `{config.ollama_chat_model}`")
+    model_cols[1].write(f"Embedding model: `{config.ollama_embedding_model}`")
+
+    st.subheader("Paths and Status")
+    if status is None:
+        st.warning("Status is currently unavailable.")
+    else:
+        st.write(f"Vault path: `{status.vault_path}`")
+        st.write(f"Output path: `{status.output_path}`")
+        st.write(f"Index schema version: `{status.index_version or 'not set'}`")
+        st.write(f"Stored chunks: `{status.total_chunks_stored}`")
+        st.write(f"Index compatible: `{'yes' if status.index_compatible else 'no'}`")
+        st.write(f"App ready: `{'yes' if status.ready else 'no'}`")
+
+    st.subheader("Advanced / Debug")
+    st.session_state["debug_mode"] = st.checkbox(
+        "Show debug details in Ask results",
+        value=st.session_state["debug_mode"],
+    )
+    st.caption(
+        "Query filters and retrieval controls live in the sidebar so they stay close to the Ask workflow."
+    )
+
+
+def _current_filters() -> RetrievalFilters:
+    return RetrievalFilters(
+        tag=st.session_state["tag_filter"].strip().lstrip("#").lower() or None,
+        folder=st.session_state["folder_filter"].strip().strip("/") or None,
+        path_contains=st.session_state["path_filter"].strip().lower() or None,
+    )
+
+
+def _current_options() -> RetrievalOptions:
+    return RetrievalOptions(
+        top_k=st.session_state["top_k"],
+        rerank=st.session_state["enable_reranking"],
+        include_linked_notes=st.session_state["include_linked"],
+    )
 
 
 def _init_session_state(config: AppConfig) -> None:
@@ -202,6 +380,7 @@ def _init_session_state(config: AppConfig) -> None:
         "folder_filter": "",
         "path_filter": "",
         "tag_filter": "",
+        "save_title": "",
         "top_k": config.top_k_results,
         "enable_reranking": config.enable_reranking,
         "include_linked": config.enable_linked_note_expansion,

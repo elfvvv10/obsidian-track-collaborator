@@ -16,6 +16,19 @@ class QueryRequest:
     filters: RetrievalFilters = field(default_factory=RetrievalFilters)
     options: RetrievalOptions = field(default_factory=RetrievalOptions)
     auto_save: bool = False
+    save_title: str | None = None
+
+
+@dataclass(slots=True)
+class QueryDebugInfo:
+    """Structured retrieval debug information for UI and diagnostics."""
+
+    initial_candidates: list[RetrievedChunk] = field(default_factory=list)
+    primary_chunks: list[RetrievedChunk] = field(default_factory=list)
+    reranking_applied: bool = False
+    reranking_changed: bool = False
+    retrieval_filters: RetrievalFilters = field(default_factory=RetrievalFilters)
+    retrieval_options: RetrievalOptions = field(default_factory=RetrievalOptions)
 
 
 @dataclass(slots=True)
@@ -26,6 +39,7 @@ class QueryResponse:
     warnings: list[str] = field(default_factory=list)
     linked_context_chunks: list[RetrievedChunk] = field(default_factory=list)
     saved_path: Path | None = None
+    debug: QueryDebugInfo = field(default_factory=QueryDebugInfo)
 
     @property
     def answer(self) -> str:
@@ -38,6 +52,10 @@ class QueryResponse:
     @property
     def retrieved_chunks(self) -> list[RetrievedChunk]:
         return self.answer_result.retrieved_chunks
+
+    @property
+    def has_saved(self) -> bool:
+        return self.saved_path is not None
 
 
 @dataclass(slots=True)
@@ -53,3 +71,11 @@ class IndexResponse:
     up_to_date: bool = False
     index_compatible: bool = True
     warnings: list[str] = field(default_factory=list)
+    vault_path: Path | None = None
+    output_path: Path | None = None
+    chat_model: str = ""
+    embedding_model: str = ""
+    ollama_reachable: bool | None = None
+    ollama_status_message: str = ""
+    ready: bool = False
+    index_version: str = ""

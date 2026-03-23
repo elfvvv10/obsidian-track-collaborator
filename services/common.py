@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import requests
+
 from utils import Note, make_note_key, normalize_path
 from vector_store import VectorStore
 
@@ -52,3 +54,23 @@ def build_note_alias_map(notes: list[Note]) -> dict[str, str]:
                 alias_map[alias] = note_key
 
     return alias_map
+
+
+def check_ollama_status(base_url: str, timeout_seconds: int) -> tuple[bool, str]:
+    """Return whether Ollama appears reachable over the local HTTP API."""
+    try:
+        response = requests.get(
+            f"{base_url.rstrip('/')}/api/tags",
+            timeout=timeout_seconds,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        return False, f"Ollama is unavailable at {base_url}: {exc}"
+
+    payload = response.json()
+    models = payload.get("models", [])
+    if isinstance(models, list) and models:
+        names = [model.get("name", "unknown") for model in models[:3] if isinstance(model, dict)]
+        if names:
+            return True, f"Ollama is reachable. Available models include: {', '.join(names)}"
+    return True, "Ollama is reachable."
