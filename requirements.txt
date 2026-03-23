@@ -1,3 +1,4 @@
 chromadb
 python-dotenv
 requests
+streamlit

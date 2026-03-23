@@ -6,16 +6,17 @@ import argparse
 from dataclasses import replace
 import sys
 
-from agent import ResearchAgent
-from chunker import chunk_notes
-from config import AppConfig, load_config
 from embeddings import OllamaEmbeddingClient
 from llm import OllamaChatClient
 from retriever import Retriever
+from config import AppConfig, load_config
 from saver import prompt_to_save, save_answer
-from utils import RetrievalFilters, RetrievalOptions, get_logger, make_note_key, normalize_path
-from vault_loader import load_notes
-from vector_store import VectorStore
+from services.common import build_note_alias_map, ensure_index_compatible, resolve_note_links
+from services.index_service import IndexService
+from services.models import QueryRequest
+from services.query_service import QueryService
+from utils import Note
+from utils import RetrievalFilters, RetrievalOptions, get_logger
 
 
 logger = get_logger()
@@ -122,73 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run_index(config: AppConfig, *, reset_store: bool) -> None:
     """Index vault notes into the local vector store."""
-    logger.info("Loading notes from %s", config.obsidian_vault_path)
-    excluded_paths = []
-    if config.obsidian_output_path != config.obsidian_vault_path:
-        excluded_paths.append(config.obsidian_output_path)
-
-    notes = load_notes(config.obsidian_vault_path, excluded_paths=excluded_paths)
-    _resolve_note_links(notes)
-    embedding_client = OllamaEmbeddingClient(config)
-    vector_store = VectorStore(config)
-    if reset_store:
-        logger.info("Resetting Chroma collection")
-        vector_store.reset()
-    else:
-        _ensure_index_compatible(vector_store)
-
-    existing_fingerprints = {} if reset_store else vector_store.list_note_fingerprints()
-    if not notes:
-        if existing_fingerprints:
-            logger.info("Vault is empty. Removing %s indexed note(s).", len(existing_fingerprints))
-            vector_store.delete_by_note_keys(list(existing_fingerprints))
-            logger.info("Index complete. Stored %s chunks.", vector_store.count())
-            return
-        raise RuntimeError("No markdown notes were found in the configured vault.")
-
-    chunks = chunk_notes(
-        notes,
-        chunk_size=config.chunk_size,
-        overlap=config.chunk_overlap,
-        strategy=config.chunking_strategy,
-    )
-    if not chunks:
-        raise RuntimeError("No note chunks were created from the vault contents.")
-
-    logger.info("Loaded %s notes and created %s chunks", len(notes), len(chunks))
-
-    note_chunks = _group_chunks_by_note_key(chunks)
-
-    deleted_note_keys = sorted(set(existing_fingerprints) - set(note_chunks))
-    if deleted_note_keys:
-        logger.info("Removing %s deleted note(s) from the index", len(deleted_note_keys))
-        vector_store.delete_by_note_keys(deleted_note_keys)
-
-    chunks_to_index = []
-    for note_key, note_chunk_group in note_chunks.items():
-        current_fingerprint = note_chunk_group[0].note_fingerprint
-        existing_fingerprint = existing_fingerprints.get(note_key)
-        if current_fingerprint == existing_fingerprint:
-            continue
-
-        if existing_fingerprint:
-            vector_store.delete_by_note_keys([note_key])
-        chunks_to_index.extend(note_chunk_group)
-
-    if not chunks_to_index:
-        logger.info("Index already up to date. Stored %s chunks.", vector_store.count())
-        return
-
-    logger.info(
-        "Generating embeddings for %s updated chunk(s) with Ollama model '%s'",
-        len(chunks_to_index),
-        config.ollama_embedding_model,
-    )
-    embeddings = embedding_client.embed_texts([chunk.text for chunk in chunks_to_index])
-
-    logger.info("Writing updated chunks to ChromaDB at %s", config.chroma_db_path)
-    vector_store.upsert_chunks(chunks_to_index, embeddings)
-    logger.info("Index complete. Stored %s chunks.", vector_store.count())
+    IndexService(config).index(reset_store=reset_store)
 
 
 def run_ask(
@@ -213,12 +148,6 @@ def run_ask(
     if top_k is not None and candidate_count is not None and candidate_count < top_k:
         raise ValueError("--candidate-count must be greater than or equal to --top-k.")
 
-    embedding_client = OllamaEmbeddingClient(config)
-    vector_store = VectorStore(config)
-    _ensure_index_compatible(vector_store)
-    retriever = Retriever(config, embedding_client, vector_store)
-    chat_client = OllamaChatClient(config)
-    agent = ResearchAgent(retriever, chat_client)
     filters = RetrievalFilters(
         folder=folder.strip().strip("/") if folder else None,
         path_contains=path_contains.strip().lower() if path_contains else None,
@@ -235,51 +164,39 @@ def run_ask(
         ),
         include_linked_notes=True if include_linked else None,
     )
+    query_service = QueryService(config)
+    request = QueryRequest(
+        question=question,
+        filters=filters,
+        options=options,
+        auto_save=False,
+    )
 
-    logger.info("Retrieving relevant notes")
-    result = agent.answer(question, filters=filters, options=options)
+    response = query_service.ask(request)
 
-    if not result.retrieved_chunks:
+    if not response.retrieved_chunks:
         raise RuntimeError("No indexed notes matched the requested retrieval filters.")
 
     print("\nAnswer\n------")
-    print(result.answer)
+    print(response.answer)
 
     print("\nSources")
     print("-------")
-    if result.sources:
-        for source in result.sources:
+    if response.sources:
+        for source in response.sources:
             print(f"- {source}")
     else:
         print("- No sources retrieved")
 
-    should_save = auto_save or config.auto_save_answer or prompt_to_save()
-    if should_save:
-        saved_path = save_answer(config.obsidian_output_path, question, result)
+    for warning in response.warnings:
+        print(f"\nWarning: {warning}")
+
+    if auto_save or config.auto_save_answer:
+        saved_path = save_answer(config.obsidian_output_path, question, response.answer_result)
         logger.info("Saved answer to %s", saved_path)
-
-
-def _group_chunks_by_note_key(chunks: list) -> dict[str, list]:
-    grouped_chunks: dict[str, list] = {}
-    for chunk in chunks:
-        grouped_chunks.setdefault(chunk.note_key, []).append(chunk)
-    return grouped_chunks
-
-
-def _resolve_note_links(notes: list) -> None:
-    alias_map = _build_note_alias_map(notes)
-
-    for note in notes:
-        own_note_key = make_note_key(note.path)
-        resolved_keys: list[str] = []
-        seen: set[str] = set()
-        for link in note.links:
-            note_key = alias_map.get(link)
-            if not note_key or note_key == own_note_key or note_key in seen:
-                continue
-            seen.add(note_key)
-            resolved_keys.append(note_key)
-        note.linked_note_keys = tuple(resolved_keys)
+    elif prompt_to_save():
+        saved_response = query_service.save(question, response.answer_result)
+        logger.info("Saved answer to %s", saved_response.saved_path)
 
 
 def _add_index_overrides(parser: argparse.ArgumentParser) -> None:
@@ -326,33 +243,19 @@ def _config_with_index_overrides(config: AppConfig, args: argparse.Namespace) ->
     )
 
 
-def _ensure_index_compatible(vector_store: VectorStore) -> None:
-    if vector_store.is_index_compatible():
-        return
-    raise RuntimeError(
-        "The local index format is out of date for this version of the app. "
-        "Run `python main.py rebuild` to recreate the index."
-    )
+def _resolve_note_links(notes: list[Note]) -> None:
+    """Compatibility wrapper for older tests and call sites."""
+    resolve_note_links(notes)
 
 
-def _build_note_alias_map(notes: list) -> dict[str, str]:
-    alias_map: dict[str, str] = {}
+def _build_note_alias_map(notes: list[Note]) -> dict[str, str]:
+    """Compatibility wrapper for older tests and call sites."""
+    return build_note_alias_map(notes)
 
-    for note in notes:
-        note_key = make_note_key(note.path)
-        normalized_path = normalize_path(note.path).lower()
-        aliases = {
-            normalized_path,
-            normalized_path.rsplit(".", 1)[0],
-            normalized_path.split("/")[-1],
-            normalized_path.split("/")[-1].rsplit(".", 1)[0],
-            note.title.strip().lower(),
-        }
-        for alias in aliases:
-            if alias:
-                alias_map[alias] = note_key
 
-    return alias_map
+def _ensure_index_compatible(vector_store) -> None:
+    """Compatibility wrapper for older tests and call sites."""
+    ensure_index_compatible(vector_store)
 
 
 if __name__ == "__main__":

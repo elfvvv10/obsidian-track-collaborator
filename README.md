@@ -1,6 +1,6 @@
 # Obsidian RAG Assistant
 
-A local-first Python CLI that turns an Obsidian vault into a retrieval-augmented research assistant using Ollama for inference and ChromaDB for vector search.
+A local-first Python Obsidian RAG assistant that runs through a CLI or a lightweight local Streamlit UI, using Ollama for inference and ChromaDB for vector search.
 
 ## Features
 
@@ -16,6 +16,7 @@ A local-first Python CLI that turns an Obsidian vault into a retrieval-augmented
 - Supports an improved saved-note template and optional auto-save
 - Generates grounded answers with a local Ollama chat model
 - Shows source note references in the terminal
+- Includes a lightweight local Streamlit UI for asking questions, indexing, and debugging
 - Optionally saves answers back into the vault as Markdown notes
 - Uses incremental indexing to update only changed notes
 - Excludes saved answers in the configured output folder from indexing when that folder lives inside the vault
@@ -41,10 +42,17 @@ The current flow is:
 
 `Obsidian vault -> vault loader -> configurable chunker -> Ollama embeddings -> ChromaDB -> retriever -> optional reranker -> Ollama chat -> terminal answer -> optional save-back`
 
+The app now also includes a thin service layer so both the CLI and UI can share the same orchestration path without duplicating business logic.
+
 Core modules:
 
 - `main.py`: CLI entrypoint
 - `config.py`: environment loading and validation
+- `services/index_service.py`: shared indexing/build flow for CLI and UI
+- `services/query_service.py`: shared query + answer flow for CLI and UI
+- `services/models.py`: structured request/response models for service consumers
+- `services/common.py`: shared service helpers such as link resolution and index checks
+- `streamlit_app.py`: lightweight local UI
 - `vault_loader.py`: Markdown vault scanning
 - `chunker.py`: configurable Markdown-aware and sentence-aware chunk creation
 - `embeddings.py`: Ollama embedding API client
@@ -202,6 +210,24 @@ The app will:
 4. Print the answer and sources in the terminal
 5. Ask whether you want to save the answer as a Markdown note
 
+## Run the Local UI
+
+The Streamlit UI uses the same service layer as the CLI, so indexing and question-answering behavior stay aligned.
+
+Start the UI with:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+The UI includes three sections:
+
+- `Ask`: question input, answer display, sources, linked-note context, and an optional debug view of retrieved chunks
+- `Index`: build and rebuild actions with user-friendly status messages
+- `Settings / Debug`: active models, top-k control, reranking toggle, linked-note toggle, auto-save toggle, and retrieval filters
+
+The UI is local-only and does not add any cloud services, authentication, or background job system.
+
 ## Save-Back Behavior
 
 After each answer, the CLI prompts:
@@ -252,8 +278,14 @@ When `OBSIDIAN_OUTPUT_PATH` points to a folder inside the vault, saved answer no
 ├── retriever.py
 ├── reranker.py
 ├── agent.py
+├── streamlit_app.py
 ├── saver.py
 ├── utils.py
+├── services/
+│   ├── common.py
+│   ├── index_service.py
+│   ├── models.py
+│   └── query_service.py
 ├── requirements.txt
 ├── .env.example
 ├── README.md
@@ -355,7 +387,7 @@ This can happen after retrieval-relevant schema changes such as new metadata fie
 
 - Chunking is Markdown-aware but still heuristic rather than token-aware
 - Metadata filters are still intentionally simple: folder, path text, and tag-based controls only
-- No GUI or web app
+- The Streamlit UI is intentionally lightweight and does not yet include persistent chat history or advanced source inspection workflows
 - Automated tests are strong locally, but live Ollama behavior is still mostly verified manually
 - Prompting is intentionally simple
 
@@ -365,5 +397,5 @@ This can happen after retrieval-relevant schema changes such as new metadata fie
 - Configurable prompt templates
 - Metadata filtering by tags, frontmatter, or note type
 - Conversation history
-- Simple TUI or desktop UI
+- Richer UI features such as persistent sessions and better source inspection
 - Optional live integration checks for Ollama and Chroma
