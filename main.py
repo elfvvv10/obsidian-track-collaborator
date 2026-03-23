@@ -13,7 +13,7 @@ from config import AppConfig, load_config
 from saver import prompt_to_save, save_answer
 from services.common import build_note_alias_map, ensure_index_compatible, resolve_note_links
 from services.index_service import IndexService
-from services.models import QueryRequest
+from services.models import QueryRequest, RetrievalMode
 from services.query_service import QueryService
 from services.web_search_service import WebSearchService
 from utils import Note
@@ -122,8 +122,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask_parser.add_argument(
         "--retrieval-mode",
-        choices=["local_only", "auto", "hybrid"],
-        default="local_only",
+        choices=[mode.value for mode in RetrievalMode],
+        default=RetrievalMode.LOCAL_ONLY.value,
         help="Choose whether to use only local notes, automatic web fallback, or hybrid local+web retrieval.",
     )
     return parser

@@ -2,11 +2,25 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from config import AppConfig
 from embeddings import OllamaEmbeddingClient
 from reranker import rerank_chunks
 from utils import RetrievalFilters, RetrievalOptions, RetrievedChunk
 from vector_store import VectorStore
+
+
+@dataclass(slots=True)
+class RetrievalDebugResult:
+    """Public retrieval result with debug-friendly intermediate stages."""
+
+    initial_candidates: list[RetrievedChunk]
+    reranked_candidates: list[RetrievedChunk]
+    primary_chunks: list[RetrievedChunk]
+    final_chunks: list[RetrievedChunk]
+    reranking_applied: bool
+    reranking_changed: bool
 
 
 class Retriever:
@@ -29,6 +43,15 @@ class Retriever:
         options: RetrievalOptions | None = None,
     ) -> list[RetrievedChunk]:
         """Return the top-k relevant chunks for a question."""
+        return self.retrieve_with_debug(query, filters=filters, options=options).final_chunks
+
+    def retrieve_with_debug(
+        self,
+        query: str,
+        filters: RetrievalFilters | None = None,
+        options: RetrievalOptions | None = None,
+    ) -> RetrievalDebugResult:
+        """Return retrieved chunks plus public intermediate retrieval details."""
         if self.vector_store.count() == 0:
             raise RuntimeError("The vector store is empty. Run `python main.py index` first.")
 
@@ -36,7 +59,16 @@ class Retriever:
         candidates = self._run_vector_retrieval(query, filters, settings["candidate_count"])
         ranked_chunks = self._apply_reranking(query, candidates, settings)
         primary_chunks = self._select_primary_chunks(ranked_chunks, settings["top_k"])
-        return self._expand_linked_chunks(primary_chunks, settings["include_linked_notes"])
+        final_chunks = self._expand_linked_chunks(primary_chunks, settings["include_linked_notes"])
+        reranking_applied = bool(settings["rerank_enabled"] or settings["boost_tags"])
+        return RetrievalDebugResult(
+            initial_candidates=candidates,
+            reranked_candidates=ranked_chunks,
+            primary_chunks=primary_chunks,
+            final_chunks=final_chunks,
+            reranking_applied=reranking_applied,
+            reranking_changed=_chunk_signatures(candidates) != _chunk_signatures(ranked_chunks),
+        )
 
     def _resolve_settings(self, options: RetrievalOptions | None) -> dict[str, object]:
         top_k = options.top_k if options and options.top_k is not None else self.config.top_k_results
@@ -131,3 +163,14 @@ def _collect_linked_note_keys(chunks: list[RetrievedChunk]) -> list[str]:
             linked_keys.append(note_key)
 
     return linked_keys
+
+
+def _chunk_signatures(chunks: list[RetrievedChunk]) -> list[tuple[object, object, object]]:
+    return [
+        (
+            chunk.metadata.get("source_path"),
+            chunk.metadata.get("chunk_index"),
+            chunk.metadata.get("note_title"),
+        )
+        for chunk in chunks
+    ]

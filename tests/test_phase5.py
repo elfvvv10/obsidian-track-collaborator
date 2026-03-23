@@ -67,6 +67,9 @@ class Phase5WebSearchTests(unittest.TestCase):
         self.assertTrue(response.web_used)
         self.assertEqual(response.debug.retrieval_mode_used, "auto_with_web")
         self.assertTrue(response.debug.local_retrieval_weak)
+        self.assertTrue(
+            any("external web evidence was used to supplement the answer" in warning for warning in response.warnings)
+        )
 
     def test_hybrid_mode_uses_web_even_with_local_results(self) -> None:
         service, tracking = make_query_service(

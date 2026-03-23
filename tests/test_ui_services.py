@@ -8,10 +8,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from config import AppConfig
+from retriever import Retriever
 from services.index_service import IndexService
-from services.models import QueryRequest
+from services.models import QueryRequest, QueryResponse, RetrievalMode
 from services.query_service import QueryService
-from utils import RetrievalOptions
+from utils import AnswerResult, RetrievalOptions, RetrievedChunk
 
 
 def make_config(root: Path) -> AppConfig:
@@ -27,6 +28,10 @@ def make_config(root: Path) -> AppConfig:
 
 
 class UIFacingServiceTests(unittest.TestCase):
+    def test_query_request_coerces_retrieval_mode(self) -> None:
+        request = QueryRequest(question="test", retrieval_mode="hybrid")
+        self.assertEqual(request.retrieval_mode, RetrievalMode.HYBRID)
+
     def test_query_service_returns_debug_trace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -64,6 +69,72 @@ class UIFacingServiceTests(unittest.TestCase):
             self.assertEqual(len(response.debug.primary_chunks), 1)
             self.assertTrue(response.debug.reranking_applied)
             self.assertEqual(len(response.retrieved_chunks), 1)
+
+    def test_query_service_save_preserves_existing_evidence_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            output_path = root / "output"
+            output_path.mkdir()
+            config = make_config(root)
+            existing = QueryResponse(
+                answer_result=AnswerResult(
+                    answer="Grounded answer",
+                    sources=["[Local] Agents (agents.md)", "[Web] Example (https://example.com)"],
+                    retrieved_chunks=[
+                        RetrievedChunk(
+                            text="Agent note content",
+                            metadata={"note_title": "Agents", "source_path": "agents.md"},
+                            distance_or_score=0.1,
+                        )
+                    ],
+                ),
+                warnings=["Local retrieval may be weak; external web evidence was used to supplement the answer."],
+            )
+
+            saved = QueryService(config).save(
+                "What do my notes say about agents?",
+                existing.answer_result,
+                existing_response=existing,
+            )
+
+            self.assertIsNotNone(saved.saved_path)
+            self.assertEqual(saved.sources, existing.sources)
+            self.assertEqual(saved.warnings, existing.warnings)
+
+    def test_retriever_returns_public_debug_result(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            config = make_config(root)
+
+            class StubEmbeddingClient:
+                def embed_text(self, text: str) -> list[float]:
+                    return [1.0, 0.0]
+
+            class StubVectorStore:
+                def count(self) -> int:
+                    return 2
+
+                def query(self, query_embedding: list[float], top_k: int, filters=None) -> list[RetrievedChunk]:
+                    return [
+                        RetrievedChunk("one", {"note_title": "One", "source_path": "one.md"}, 0.1),
+                        RetrievedChunk("two", {"note_title": "Two", "source_path": "two.md"}, 0.2),
+                    ]
+
+                def get_chunks_by_note_keys(self, note_keys, *, max_chunks_per_note, excluded_note_keys=None):
+                    return []
+
+            retriever = Retriever(config, StubEmbeddingClient(), StubVectorStore())
+            debug = retriever.retrieve_with_debug(
+                "question",
+                options=RetrievalOptions(top_k=1, candidate_count=2, rerank=True),
+            )
+
+            self.assertEqual(len(debug.initial_candidates), 2)
+            self.assertEqual(len(debug.primary_chunks), 1)
+            self.assertEqual(len(debug.final_chunks), 1)
 
     def test_index_service_status_reports_paths_and_ollama_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

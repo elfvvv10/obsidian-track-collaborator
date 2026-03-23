@@ -2,11 +2,45 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from enum import StrEnum
 from pathlib import Path
 
 from utils import AnswerResult, RetrievedChunk, RetrievalFilters, RetrievalOptions
 from web_search import WebSearchResult
+
+
+class RetrievalMode(StrEnum):
+    """Supported retrieval modes for local and web evidence."""
+
+    LOCAL_ONLY = "local_only"
+    AUTO = "auto"
+    HYBRID = "hybrid"
+
+    @classmethod
+    def coerce(cls, value: "RetrievalMode | str | None") -> "RetrievalMode":
+        if isinstance(value, cls):
+            return value
+        if value is None:
+            return cls.LOCAL_ONLY
+        normalized = str(value).strip().lower()
+        for mode in cls:
+            if mode.value == normalized:
+                return mode
+        raise ValueError(
+            f"Unsupported retrieval mode: {value}. Expected one of: "
+            f"{', '.join(mode.value for mode in cls)}."
+        )
+
+
+class RetrievalModeUsed(StrEnum):
+    """Resolved retrieval behavior used for the final answer."""
+
+    LOCAL_ONLY = "local_only"
+    AUTO_LOCAL_ONLY = "auto_local_only"
+    AUTO_WITH_WEB = "auto_with_web"
+    HYBRID = "hybrid"
+    HYBRID_NO_WEB_RESULTS = "hybrid_no_web_results"
 
 
 @dataclass(slots=True)
@@ -18,7 +52,10 @@ class QueryRequest:
     options: RetrievalOptions = field(default_factory=RetrievalOptions)
     auto_save: bool = False
     save_title: str | None = None
-    retrieval_mode: str = "local_only"
+    retrieval_mode: RetrievalMode = RetrievalMode.LOCAL_ONLY
+
+    def __post_init__(self) -> None:
+        self.retrieval_mode = RetrievalMode.coerce(self.retrieval_mode)
 
 
 @dataclass(slots=True)
@@ -31,8 +68,8 @@ class QueryDebugInfo:
     reranking_changed: bool = False
     retrieval_filters: RetrievalFilters = field(default_factory=RetrievalFilters)
     retrieval_options: RetrievalOptions = field(default_factory=RetrievalOptions)
-    retrieval_mode_requested: str = "local_only"
-    retrieval_mode_used: str = "local_only"
+    retrieval_mode_requested: RetrievalMode = RetrievalMode.LOCAL_ONLY
+    retrieval_mode_used: RetrievalModeUsed = RetrievalModeUsed.LOCAL_ONLY
     local_retrieval_weak: bool = False
     web_used: bool = False
 
@@ -75,6 +112,10 @@ class QueryResponse:
     @property
     def web_sources(self) -> list[str]:
         return [source for source in self.answer_result.sources if source.startswith("[Web]")]
+
+    def with_saved_path(self, saved_path: Path) -> "QueryResponse":
+        """Return a copy with the saved path filled in while preserving evidence state."""
+        return replace(self, saved_path=saved_path)
 
 
 @dataclass(slots=True)

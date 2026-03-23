@@ -8,7 +8,7 @@ import streamlit as st
 
 from config import AppConfig, load_config
 from services.index_service import IndexService
-from services.models import IndexResponse, QueryRequest, QueryResponse
+from services.models import IndexResponse, QueryRequest, QueryResponse, RetrievalMode
 from services.query_service import QueryService
 from utils import RetrievalFilters, RetrievalOptions
 
@@ -30,9 +30,9 @@ def main() -> None:
     _init_session_state(base_config)
     ui_config = _config_from_session(base_config)
     services = _get_services(ui_config)
-    status = _safe_get_status(services["index_service"])
+    status, status_error = _safe_get_status(services["index_service"])
 
-    _render_sidebar(base_config, status)
+    _render_sidebar(base_config, status, status_error)
 
     ask_tab, index_tab, settings_tab = st.tabs(["Ask", "Index", "Settings / Debug"])
 
@@ -43,7 +43,7 @@ def main() -> None:
         _render_index_tab(services["index_service"], status)
 
     with settings_tab:
-        _render_settings_tab(base_config, status)
+        _render_settings_tab(base_config, status, status_error)
 
 
 def _get_services(config: AppConfig) -> dict[str, object]:
@@ -54,14 +54,14 @@ def _get_services(config: AppConfig) -> dict[str, object]:
     }
 
 
-def _safe_get_status(index_service: IndexService) -> IndexResponse | None:
+def _safe_get_status(index_service: IndexService) -> tuple[IndexResponse | None, str | None]:
     try:
-        return index_service.get_status()
-    except Exception:
-        return None
+        return index_service.get_status(), None
+    except Exception as exc:
+        return None, str(exc)
 
 
-def _render_sidebar(config: AppConfig, status: IndexResponse | None) -> None:
+def _render_sidebar(config: AppConfig, status: IndexResponse | None, status_error: str | None) -> None:
     with st.sidebar:
         st.header("Ask Controls")
         st.session_state["folder_filter"] = st.text_input(
@@ -102,8 +102,8 @@ def _render_sidebar(config: AppConfig, status: IndexResponse | None) -> None:
         )
         st.session_state["retrieval_mode"] = st.selectbox(
             "Retrieval mode",
-            options=["local_only", "auto", "hybrid"],
-            index=["local_only", "auto", "hybrid"].index(st.session_state["retrieval_mode"]),
+            options=[mode.value for mode in RetrievalMode],
+            index=[mode.value for mode in RetrievalMode].index(st.session_state["retrieval_mode"]),
             help="Choose local-only, automatic web fallback, or always-on hybrid web use.",
         )
 
@@ -111,6 +111,8 @@ def _render_sidebar(config: AppConfig, status: IndexResponse | None) -> None:
         st.subheader("App Readiness")
         if status is None:
             st.warning("Status is currently unavailable.")
+            if status_error:
+                st.caption(status_error)
         else:
             if status.ready:
                 st.success("Index is ready for questions.")
@@ -242,9 +244,8 @@ def _render_ask_tab(
                 st.session_state.get("last_question", question.strip()),
                 response.answer_result,
                 title_override=st.session_state["save_title"].strip() or None,
+                existing_response=response,
             )
-            saved_response.debug = response.debug
-            saved_response.web_results = response.web_results
             st.session_state["last_query_response"] = saved_response
             st.success(f"Saved answer to {saved_response.saved_path}")
         except Exception as exc:
@@ -286,6 +287,7 @@ def _render_debug_section(response: QueryResponse) -> None:
         )
 
         _render_chunk_list("Initial Retrieval Candidates", response.debug.initial_candidates)
+        _render_chunk_list("Primary Selected Local Chunks", response.debug.primary_chunks)
         _render_chunk_list("Final Selected Chunks", response.retrieved_chunks)
         _render_web_results(response)
 
@@ -378,7 +380,7 @@ def _show_index_result(title: str, response: IndexResponse) -> None:
         st.warning(warning)
 
 
-def _render_settings_tab(config: AppConfig, status: IndexResponse | None) -> None:
+def _render_settings_tab(config: AppConfig, status: IndexResponse | None, status_error: str | None) -> None:
     st.subheader("Active Models")
     model_cols = st.columns(2)
     model_cols[0].write(f"Chat model: `{config.ollama_chat_model}`")
@@ -387,6 +389,8 @@ def _render_settings_tab(config: AppConfig, status: IndexResponse | None) -> Non
     st.subheader("Paths and Status")
     if status is None:
         st.warning("Status is currently unavailable.")
+        if status_error:
+            st.caption(status_error)
     else:
         st.write(f"Vault path: `{status.vault_path}`")
         st.write(f"Output path: `{status.output_path}`")
@@ -433,7 +437,7 @@ def _init_session_state(config: AppConfig) -> None:
         "enable_reranking": config.enable_reranking,
         "include_linked": config.enable_linked_note_expansion,
         "auto_save": config.auto_save_answer,
-        "retrieval_mode": "local_only",
+        "retrieval_mode": RetrievalMode.LOCAL_ONLY.value,
         "debug_mode": False,
         "last_query_response": None,
         "last_question": "",

@@ -8,7 +8,13 @@ from llm import OllamaChatClient
 from retriever import Retriever
 from saver import save_answer
 from services.common import ensure_index_compatible
-from services.models import QueryDebugInfo, QueryRequest, QueryResponse
+from services.models import (
+    QueryDebugInfo,
+    QueryRequest,
+    QueryResponse,
+    RetrievalMode,
+    RetrievalModeUsed,
+)
 from services.web_search_service import WebSearchService
 from utils import AnswerResult, RetrievedChunk, get_logger
 from vector_store import VectorStore
@@ -59,47 +65,11 @@ class QueryService:
                     options=request.options,
                 )
             except RuntimeError as exc:
-                if request.retrieval_mode == "local_only":
+                if request.retrieval_mode == RetrievalMode.LOCAL_ONLY:
                     raise
                 final_chunks = []
                 logger.info("Local retrieval unavailable; continuing with optional web fallback: %s", exc)
-            web_results, web_warnings = self._run_web_search_if_needed(
-                request.question,
-                primary_chunks=[chunk for chunk in final_chunks if not chunk.metadata.get("linked_context")],
-                retrieval_mode=request.retrieval_mode,
-                web_search_service=web_search_service,
-            )
-            answer_result = _build_answer_result(
-                request.question,
-                final_chunks,
-                chat_client,
-                web_results=web_results,
-                retrieval_mode=request.retrieval_mode,
-            )
-            initial_candidates = []
             primary_chunks = [chunk for chunk in final_chunks if not chunk.metadata.get("linked_context")]
-            reranking_applied = bool(request.options.rerank or request.options.boost_tags)
-            reranking_changed = False
-        else:
-            retrieval_settings = retriever._resolve_settings(request.options)
-            initial_candidates = retriever._run_vector_retrieval(
-                request.question,
-                request.filters,
-                int(retrieval_settings["candidate_count"]),
-            )
-            reranked_candidates = retriever._apply_reranking(
-                request.question,
-                initial_candidates,
-                retrieval_settings,
-            )
-            primary_chunks = retriever._select_primary_chunks(
-                reranked_candidates,
-                int(retrieval_settings["top_k"]),
-            )
-            final_chunks = retriever._expand_linked_chunks(
-                primary_chunks,
-                bool(retrieval_settings["include_linked_notes"]),
-            )
             web_results, web_warnings = self._run_web_search_if_needed(
                 request.question,
                 primary_chunks=primary_chunks,
@@ -113,10 +83,35 @@ class QueryService:
                 web_results=web_results,
                 retrieval_mode=request.retrieval_mode,
             )
-            reranking_applied = bool(retrieval_settings["rerank_enabled"] or retrieval_settings["boost_tags"])
-            reranking_changed = _chunk_signatures(initial_candidates) != _chunk_signatures(reranked_candidates)
+            initial_candidates = []
+            reranking_applied = bool(request.options.rerank or request.options.boost_tags)
+            reranking_changed = False
+        else:
+            retrieval_debug = retriever.retrieve_with_debug(
+                request.question,
+                filters=request.filters,
+                options=request.options,
+            )
+            initial_candidates = retrieval_debug.initial_candidates
+            primary_chunks = retrieval_debug.primary_chunks
+            final_chunks = retrieval_debug.final_chunks
+            web_results, web_warnings = self._run_web_search_if_needed(
+                request.question,
+                primary_chunks=primary_chunks,
+                retrieval_mode=request.retrieval_mode,
+                web_search_service=web_search_service,
+            )
+            answer_result = _build_answer_result(
+                request.question,
+                final_chunks,
+                chat_client,
+                web_results=web_results,
+                retrieval_mode=request.retrieval_mode,
+            )
+            reranking_applied = retrieval_debug.reranking_applied
+            reranking_changed = retrieval_debug.reranking_changed
 
-        warnings = _build_warnings(answer_result)
+        warnings = _build_warnings(answer_result, web_results=web_results)
         warnings.extend(web_warnings)
         linked_chunks = [chunk for chunk in answer_result.retrieved_chunks if chunk.metadata.get("linked_context")]
         saved_path = None
@@ -156,6 +151,7 @@ class QueryService:
         answer_result: AnswerResult,
         *,
         title_override: str | None = None,
+        existing_response: QueryResponse | None = None,
     ) -> QueryResponse:
         """Persist an existing answer result and return updated response info."""
         saved_path = save_answer(
@@ -165,9 +161,11 @@ class QueryService:
             title_override=title_override,
         )
         logger.info("Saved answer to %s", saved_path)
+        if existing_response is not None:
+            return existing_response.with_saved_path(saved_path)
         return QueryResponse(
             answer_result=answer_result,
-            warnings=_build_warnings(answer_result),
+            warnings=_build_warnings(answer_result, web_results=[]),
             linked_context_chunks=[
                 chunk for chunk in answer_result.retrieved_chunks if chunk.metadata.get("linked_context")
             ],
@@ -181,7 +179,7 @@ class QueryService:
         question: str,
         *,
         primary_chunks: list[RetrievedChunk],
-        retrieval_mode: str,
+        retrieval_mode: RetrievalMode,
         web_search_service: WebSearchService,
     ) -> tuple[list[WebSearchResult], list[str]]:
         should_use_web = _should_use_web_search(retrieval_mode, primary_chunks)
@@ -241,15 +239,28 @@ def _build_answer_result(
     return AnswerResult(answer=answer, sources=sources, retrieved_chunks=chunks)
 
 
-def _build_warnings(answer_result: AnswerResult) -> list[str]:
+def _build_warnings(
+    answer_result: AnswerResult,
+    *,
+    web_results: list[WebSearchResult],
+) -> list[str]:
     warnings: list[str] = []
-    if not answer_result.retrieved_chunks:
-        warnings.append("No relevant note context was retrieved.")
+    if not answer_result.retrieved_chunks and not web_results:
+        warnings.append("No relevant local note context or external web evidence was retrieved.")
+        return warnings
+
+    if not answer_result.retrieved_chunks and web_results:
+        warnings.append("No relevant local note context was retrieved; this answer uses external web evidence.")
         return warnings
 
     primary_chunks = [chunk for chunk in answer_result.retrieved_chunks if not chunk.metadata.get("linked_context")]
     if not primary_chunks:
-        warnings.append("No directly retrieved chunks were used; only linked context is available.")
+        if web_results:
+            warnings.append(
+                "No directly retrieved local chunks were used; this answer relies on linked-note and web evidence."
+            )
+        else:
+            warnings.append("No directly retrieved chunks were used; only linked context is available.")
 
     distances = [
         chunk.distance_or_score
@@ -257,15 +268,18 @@ def _build_warnings(answer_result: AnswerResult) -> list[str]:
         if chunk.distance_or_score is not None
     ]
     if distances and min(distances) > 0.7:
-        warnings.append("Retrieval may be weak; the closest chunk distance is relatively high.")
+        if web_results:
+            warnings.append("Local retrieval may be weak; external web evidence was used to supplement the answer.")
+        else:
+            warnings.append("Retrieval may be weak; the closest chunk distance is relatively high.")
 
     return warnings
 
 
-def _should_use_web_search(retrieval_mode: str, primary_chunks: list[RetrievedChunk]) -> bool:
-    if retrieval_mode == "local_only":
+def _should_use_web_search(retrieval_mode: RetrievalMode, primary_chunks: list[RetrievedChunk]) -> bool:
+    if retrieval_mode == RetrievalMode.LOCAL_ONLY:
         return False
-    if retrieval_mode == "hybrid":
+    if retrieval_mode == RetrievalMode.HYBRID:
         return True
     return not primary_chunks or _is_local_retrieval_weak(primary_chunks)
 
@@ -277,20 +291,12 @@ def _is_local_retrieval_weak(primary_chunks: list[RetrievedChunk]) -> bool:
     return bool(distances) and min(distances) > 0.7
 
 
-def _resolve_retrieval_mode_used(retrieval_mode: str, web_results: list[WebSearchResult]) -> str:
-    if retrieval_mode == "local_only":
-        return "local_only"
-    if retrieval_mode == "hybrid":
-        return "hybrid" if web_results else "hybrid_no_web_results"
-    return "auto_with_web" if web_results else "auto_local_only"
-
-
-def _chunk_signatures(chunks: list[RetrievedChunk]) -> list[tuple[object, object, object]]:
-    return [
-        (
-            chunk.metadata.get("source_path"),
-            chunk.metadata.get("chunk_index"),
-            chunk.metadata.get("note_title"),
-        )
-        for chunk in chunks
-    ]
+def _resolve_retrieval_mode_used(
+    retrieval_mode: RetrievalMode,
+    web_results: list[WebSearchResult],
+) -> RetrievalModeUsed:
+    if retrieval_mode == RetrievalMode.LOCAL_ONLY:
+        return RetrievalModeUsed.LOCAL_ONLY
+    if retrieval_mode == RetrievalMode.HYBRID:
+        return RetrievalModeUsed.HYBRID if web_results else RetrievalModeUsed.HYBRID_NO_WEB_RESULTS
+    return RetrievalModeUsed.AUTO_WITH_WEB if web_results else RetrievalModeUsed.AUTO_LOCAL_ONLY
