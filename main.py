@@ -61,6 +61,13 @@ def main() -> int:
                 title=args.title,
                 index_now=args.index_now,
             )
+        elif args.command == "ingest-youtube":
+            run_ingest_youtube(
+                config,
+                args.url,
+                title=args.title,
+                index_now=args.index_now,
+            )
         else:
             parser.print_help()
             return 1
@@ -79,6 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("index", help="Build the vector index from the configured vault")
     rebuild_parser = subparsers.add_parser("rebuild", help="Clear and rebuild the vector index")
     ingest_parser = subparsers.add_parser("ingest-webpage", help="Import a webpage into the vault")
+    ingest_youtube_parser = subparsers.add_parser("ingest-youtube", help="Import a YouTube transcript into the vault")
 
     index_parser = subparsers.choices["index"]
     _add_index_overrides(index_parser)
@@ -138,6 +146,13 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument("url", help="Webpage URL to ingest into the vault")
     ingest_parser.add_argument("--title", help="Optional title override for the saved note")
     ingest_parser.add_argument(
+        "--index-now",
+        action="store_true",
+        help="Run incremental indexing immediately after saving the ingested note.",
+    )
+    ingest_youtube_parser.add_argument("url", help="YouTube URL to ingest into the vault")
+    ingest_youtube_parser.add_argument("--title", help="Optional title override for the saved note")
+    ingest_youtube_parser.add_argument(
         "--index-now",
         action="store_true",
         help="Run incremental indexing immediately after saving the ingested note.",
@@ -241,6 +256,31 @@ def run_ingest_webpage(
 ) -> None:
     """Import a webpage into the vault and optionally index it."""
     response = IngestionService(config).ingest_webpage(
+        IngestionRequest(
+            source=url,
+            title_override=title,
+            index_now=True if index_now else None,
+        )
+    )
+
+    print("\nIngestion Complete\n------------------")
+    print(f"Title: {response.title}")
+    print(f"Saved Path: {response.saved_path}")
+    print(f"Source Type: {response.source_type}")
+    print(f"Indexed Now: {'yes' if response.index_triggered else 'no'}")
+    for warning in response.warnings:
+        print(f"\nWarning: {warning}")
+
+
+def run_ingest_youtube(
+    config: AppConfig,
+    url: str,
+    *,
+    title: str | None = None,
+    index_now: bool = False,
+) -> None:
+    """Import a YouTube transcript into the vault and optionally index it."""
+    response = IngestionService(config).ingest_youtube(
         IngestionRequest(
             source=url,
             title_override=title,

@@ -37,6 +37,7 @@ class AppConfig:
     web_search_max_results: int = 3
     web_search_timeout_seconds: int = 10
     webpage_ingestion_folder: str = "ingested_webpages"
+    youtube_ingestion_folder: str = "ingested_youtube"
     auto_index_after_ingestion: bool = False
     webpage_fetch_timeout_seconds: int = 15
     webpage_fetch_user_agent: str = "obsidian-rag-assistant/1.0"
@@ -82,6 +83,7 @@ def load_config() -> AppConfig:
     web_search_max_results = _required_int_env("WEB_SEARCH_MAX_RESULTS", default=3, minimum=1)
     web_search_timeout_seconds = _required_int_env("WEB_SEARCH_TIMEOUT_SECONDS", default=10, minimum=1)
     webpage_ingestion_folder = _relative_folder_env("WEBPAGE_INGESTION_FOLDER", default="ingested_webpages")
+    youtube_ingestion_folder = _relative_folder_env("YOUTUBE_INGESTION_FOLDER", default="ingested_youtube")
     auto_index_after_ingestion = _bool_env("AUTO_INDEX_AFTER_INGESTION", default=False)
     webpage_fetch_timeout_seconds = _required_int_env("WEBPAGE_FETCH_TIMEOUT_SECONDS", default=15, minimum=1)
     webpage_fetch_user_agent = os.getenv(
@@ -118,6 +120,7 @@ def load_config() -> AppConfig:
         web_search_max_results=web_search_max_results,
         web_search_timeout_seconds=web_search_timeout_seconds,
         webpage_ingestion_folder=webpage_ingestion_folder,
+        youtube_ingestion_folder=youtube_ingestion_folder,
         auto_index_after_ingestion=auto_index_after_ingestion,
         webpage_fetch_timeout_seconds=webpage_fetch_timeout_seconds,
         webpage_fetch_user_agent=webpage_fetch_user_agent,

@@ -185,3 +185,44 @@ class CLITests(unittest.TestCase):
             output = buffer.getvalue()
             self.assertIn("Ingestion Complete", output)
             self.assertIn("Example Article", output)
+
+    def test_main_ingest_youtube_command_dispatches_to_ingestion_flow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            config = make_config(root)
+            response = IngestionResponse(
+                source="https://www.youtube.com/watch?v=abc123xyz00",
+                source_type="youtube",
+                saved_path=root / "vault" / "ingested_youtube" / "video.md",
+                title="Example Video",
+                index_triggered=True,
+            )
+
+            with patch("main.load_config", return_value=config), patch(
+                "main.IngestionService.ingest_youtube",
+                return_value=response,
+            ) as ingest_mock, patch(
+                "sys.argv",
+                [
+                    "main.py",
+                    "ingest-youtube",
+                    "https://www.youtube.com/watch?v=abc123xyz00",
+                    "--title",
+                    "Example Video",
+                    "--index-now",
+                ],
+            ):
+                buffer = io.StringIO()
+                with redirect_stdout(buffer):
+                    exit_code = main.main()
+
+            self.assertEqual(exit_code, 0)
+            request = ingest_mock.call_args.args[0]
+            self.assertEqual(request.source, "https://www.youtube.com/watch?v=abc123xyz00")
+            self.assertEqual(request.title_override, "Example Video")
+            self.assertTrue(request.index_now)
+            output = buffer.getvalue()
+            self.assertIn("Ingestion Complete", output)
+            self.assertIn("Example Video", output)

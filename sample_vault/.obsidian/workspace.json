@@ -11,14 +11,10 @@
             "id": "484875c2ee95507a",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "ai_agents.md",
-                "mode": "source",
-                "source": false
-              },
+              "type": "empty",
+              "state": {},
               "icon": "lucide-file",
-              "title": "ai_agents"
+              "title": "New tab"
             }
           }
         ]
@@ -94,7 +90,6 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "ai_agents.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +99,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for ai_agents"
+              "title": "Backlinks"
             }
           },
           {
@@ -113,12 +108,11 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "ai_agents.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from ai_agents"
+              "title": "Outgoing links"
             }
           },
           {
@@ -156,13 +150,12 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "ai_agents.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of ai_agents"
+              "title": "Outline"
             }
           }
         ]
@@ -183,18 +176,18 @@
       "bases:Create new base": false
     }
   },
-  "active": "9f8e7cc1c223ba7c",
+  "active": "484875c2ee95507a",
   "lastOpenFiles": [
+    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-16.md",
+    "research_answers/2026-03-23-what-do-my-notes-say-about-local-models-answer.md",
+    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-14.md",
     "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer.md",
     "ai_agents.md",
     "local_llms.md",
     "personal_knowledge_management.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-16.md",
     "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-15.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-14.md",
     "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-13.md",
     "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-12.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-local-models-answer.md",
     "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-11.md",
     "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-10.md",
     "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-9.md",

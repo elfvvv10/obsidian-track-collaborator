@@ -19,6 +19,7 @@ A local-first Python Obsidian RAG assistant that runs through a CLI or a lightwe
 - Includes a lightweight local Streamlit UI for asking questions, indexing, and debugging
 - Supports optional external web search as a separate evidence path
 - Supports webpage ingestion as a separate content-import workflow
+- Supports YouTube transcript ingestion as a separate content-import workflow
 - Optionally saves answers back into the vault as Markdown notes
 - Uses incremental indexing to update only changed notes
 - Excludes saved answers in the configured output folder from indexing when that folder lives inside the vault
@@ -52,6 +53,8 @@ External content ingestion is handled as a separate workflow:
 
 `Webpage URL -> ingestion service -> webpage fetch/extract -> Markdown note in vault -> optional indexing`
 
+`YouTube URL -> ingestion service -> transcript fetch -> Markdown note in vault -> optional indexing`
+
 The app now also includes a thin service layer so both the CLI and UI can share the same orchestration path without duplicating business logic.
 
 Core modules:
@@ -64,7 +67,9 @@ Core modules:
 - `services/ingestion_service.py`: shared external content ingestion orchestration
 - `services/models.py`: structured request/response models for service consumers
 - `services/common.py`: shared service helpers such as link resolution and index checks
+- `services/ingestion_helpers.py`: shared note-building and collision-safe save helpers for imported content
 - `services/webpage_ingestion_service.py`: webpage fetch, text extraction, and note creation
+- `services/youtube_ingestion_service.py`: YouTube transcript retrieval and note creation
 - `streamlit_app.py`: lightweight local UI
 - `vault_loader.py`: Markdown vault scanning
 - `chunker.py`: configurable Markdown-aware and sentence-aware chunk creation
@@ -156,6 +161,7 @@ WEB_SEARCH_API_URL=
 WEB_SEARCH_MAX_RESULTS=3
 WEB_SEARCH_TIMEOUT_SECONDS=10
 WEBPAGE_INGESTION_FOLDER=ingested_webpages
+YOUTUBE_INGESTION_FOLDER=ingested_youtube
 AUTO_INDEX_AFTER_INGESTION=false
 WEBPAGE_FETCH_TIMEOUT_SECONDS=15
 WEBPAGE_FETCH_USER_AGENT=obsidian-rag-assistant/1.0
@@ -185,6 +191,7 @@ Variable notes:
 - `WEB_SEARCH_MAX_RESULTS`: maximum number of external results to include
 - `WEB_SEARCH_TIMEOUT_SECONDS`: timeout for external web search requests
 - `WEBPAGE_INGESTION_FOLDER`: vault-relative folder where ingested webpages are saved
+- `YOUTUBE_INGESTION_FOLDER`: vault-relative folder where ingested YouTube transcript notes are saved
 - `AUTO_INDEX_AFTER_INGESTION`: automatically run incremental indexing after a successful ingestion
 - `WEBPAGE_FETCH_TIMEOUT_SECONDS`: timeout for webpage fetch requests
 - `WEBPAGE_FETCH_USER_AGENT`: user-agent string used for webpage ingestion requests
@@ -271,6 +278,27 @@ Each saved note includes:
 - ingestion timestamp
 - extracted readable content
 
+## Ingest YouTube Videos
+
+YouTube ingestion is also an import workflow. It differs from webpage ingestion because it focuses on transcript text instead of HTML page extraction, and it differs from query-time web search because it creates a permanent vault note rather than temporary answer-time evidence.
+
+Run it from the CLI:
+
+```bash
+python main.py ingest-youtube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+python main.py ingest-youtube "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --title "Example Video" --index-now
+```
+
+Saved YouTube notes go into `YOUTUBE_INGESTION_FOLDER` inside your vault, which defaults to `ingested_youtube/`.
+
+Each saved note includes:
+
+- video title when available
+- source URL
+- YouTube video ID
+- ingestion timestamp
+- transcript text
+
 ## Run the Local UI
 
 The Streamlit UI uses the same service layer as the CLI, so indexing and question-answering behavior stay aligned.
@@ -285,7 +313,7 @@ The UI includes four main areas:
 
 - `Sidebar`: query filters and retrieval controls such as folder, path text, tag, top-k, reranking, linked-note expansion, auto-save, and retrieval mode
 - `Ask`: question input, answer display, separate local/web sources, save actions, linked-note context, and an optional debug view of retrieval stages
-- `Ingest`: paste a webpage URL, save it into the vault, and optionally trigger indexing right away
+- `Ingest`: paste a webpage URL or YouTube URL, save it into the vault, and optionally trigger indexing right away
 - `Index`: readiness messages plus build and rebuild actions
 - `Settings / Debug`: active models, paths, app readiness, index compatibility, and the debug toggle
 
@@ -350,11 +378,13 @@ When `OBSIDIAN_OUTPUT_PATH` points to a folder inside the vault, saved answer no
 ├── services/
 │   ├── common.py
 │   ├── ingestion_service.py
+│   ├── ingestion_helpers.py
 │   ├── index_service.py
 │   ├── models.py
 │   ├── query_service.py
 │   ├── web_search_service.py
-│   └── webpage_ingestion_service.py
+│   ├── webpage_ingestion_service.py
+│   └── youtube_ingestion_service.py
 ├── requirements.txt
 ├── .env.example
 ├── README.md
@@ -366,6 +396,7 @@ The `tests/` directory includes:
 
 - mocked client and CLI tests
 - mocked ingestion tests for webpage fetch and save behavior
+- mocked ingestion tests for webpage and YouTube import behavior
 - local module and smoke tests
 - orchestration-level integration tests using temporary vaults and real local indexing/retrieval flow
 - service-layer tests for UI-facing query and status responses
@@ -454,6 +485,19 @@ Fix:
 - Some sites require JavaScript-heavy rendering or block simple fetch clients
 - Increase `WEBPAGE_FETCH_TIMEOUT_SECONDS` if the site is slow to respond
 
+### YouTube ingestion fails
+
+Symptom:
+
+- The app says the YouTube transcript could not be retrieved.
+
+Fix:
+
+- Check that the URL is a valid YouTube watch, short, or youtu.be link
+- Confirm the video has transcripts available
+- Install dependencies from `requirements.txt` so `youtube-transcript-api` is present
+- Try a different video if transcripts are disabled or unavailable
+
 ### Retrieval filters return no results
 
 Symptom:
@@ -491,6 +535,7 @@ This can happen after retrieval-relevant schema changes such as new metadata fie
 - The default provider is Wikipedia search, which is more reliable than the previous DuckDuckGo-only approach but is still narrower than a full general web search engine
 - External web evidence is kept separate from local notes, but answer quality still depends on prompt quality and source quality
 - Webpage ingestion uses lightweight HTML extraction, so some pages with heavy JavaScript rendering or aggressive boilerplate may not import cleanly
+- YouTube ingestion depends on transcript availability and will not work well for videos without transcripts
 - Automated tests are strong locally, but live Ollama behavior is still mostly verified manually
 - Prompting is intentionally simple
 
@@ -502,4 +547,4 @@ This can happen after retrieval-relevant schema changes such as new metadata fie
 - Conversation history
 - Richer UI features such as persistent sessions and better source inspection
 - Optional live integration checks for Ollama and Chroma
-- Additional ingestion sources such as YouTube transcripts through the same ingestion service layer
+- Better cleanup, sectioning, and summarization options for imported external content

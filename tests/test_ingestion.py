@@ -13,6 +13,7 @@ from config import AppConfig
 from services.ingestion_service import IngestionService
 from services.models import IngestionRequest, IngestionResponse
 from services.webpage_ingestion_service import WebpageIngestionService
+from services.youtube_ingestion_service import YouTubeIngestionService
 
 
 def make_config(root: Path) -> AppConfig:
@@ -147,6 +148,94 @@ class WebpageIngestionTests(unittest.TestCase):
                 index_service_cls=StubIndexService,
             ).ingest_webpage(
                 IngestionRequest(source="https://example.com/article", index_now=True)
+            )
+
+            self.assertTrue(response.index_triggered)
+            self.assertEqual(StubIndexService.calls, [False])
+
+    def test_youtube_ingestion_saves_markdown_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            config = make_config(root)
+            config.obsidian_vault_path.mkdir()
+            config.obsidian_output_path.mkdir()
+
+            with patch.object(
+                YouTubeIngestionService,
+                "_fetch_title",
+                return_value="Test Video",
+            ), patch.object(
+                YouTubeIngestionService,
+                "_fetch_transcript",
+                return_value="First transcript line.\n\nSecond transcript line.",
+            ):
+                response = YouTubeIngestionService(config).ingest(
+                    IngestionRequest(source="https://www.youtube.com/watch?v=abc123xyz00")
+                )
+
+            self.assertEqual(response.source_type, "youtube")
+            self.assertEqual(response.title, "Test Video")
+            self.assertTrue(response.saved_path.exists())
+            self.assertIn(config.youtube_ingestion_folder, str(response.saved_path))
+
+            content = response.saved_path.read_text(encoding="utf-8")
+            self.assertIn("source_type: youtube", content)
+            self.assertIn('youtube_video_id: "abc123xyz00"', content)
+            self.assertIn("## Transcript", content)
+            self.assertIn("First transcript line.", content)
+            self.assertIn("# Test Video", content)
+
+    def test_youtube_ingestion_handles_transcript_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            config = make_config(root)
+            config.obsidian_vault_path.mkdir()
+            config.obsidian_output_path.mkdir()
+
+            with patch.object(
+                YouTubeIngestionService,
+                "_fetch_transcript",
+                side_effect=RuntimeError("no transcript"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "no transcript"):
+                    YouTubeIngestionService(config).ingest(
+                        IngestionRequest(source="https://www.youtube.com/watch?v=abc123xyz00")
+                    )
+
+    def test_ingestion_service_can_trigger_incremental_index_for_youtube(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            config = make_config(root)
+            config.obsidian_vault_path.mkdir()
+            config.obsidian_output_path.mkdir()
+
+            class StubYouTubeService:
+                def __init__(self, config: AppConfig) -> None:
+                    self.config = config
+
+                def ingest(self, request: IngestionRequest) -> IngestionResponse:
+                    return IngestionResponse(
+                        source=request.source,
+                        source_type="youtube",
+                        saved_path=self.config.obsidian_vault_path / "ingested_youtube" / "video.md",
+                        title="Imported Video",
+                    )
+
+            class StubIndexService:
+                calls: list[bool] = []
+
+                def __init__(self, config: AppConfig) -> None:
+                    self.config = config
+
+                def index(self, *, reset_store: bool) -> None:
+                    self.calls.append(reset_store)
+
+            response = IngestionService(
+                config,
+                youtube_service_cls=StubYouTubeService,
+                index_service_cls=StubIndexService,
+            ).ingest_youtube(
+                IngestionRequest(source="https://www.youtube.com/watch?v=abc123xyz00", index_now=True)
             )
 
             self.assertTrue(response.index_triggered)

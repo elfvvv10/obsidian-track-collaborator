@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from html import unescape
 from html.parser import HTMLParser
-from pathlib import Path
 import re
-from urllib.parse import urlparse
 
 import requests
 
 from config import AppConfig
+from services.ingestion_helpers import (
+    build_ingested_markdown_note,
+    fallback_title_from_url,
+    make_ingestion_destination,
+)
 from services.models import IngestionRequest, IngestionResponse
-from utils import current_timestamp, ensure_directory, slugify
+from utils import ensure_directory
 
 
 class WebpageIngestionService:
@@ -31,16 +34,17 @@ class WebpageIngestionService:
         extracted = _extract_webpage_content(html)
         title = request.title_override.strip() if request.title_override else extracted["title"]
         if not title:
-            title = _fallback_title_from_url(url)
+            title = fallback_title_from_url(url, default_host="webpage")
 
         output_dir = self.config.obsidian_vault_path / self.config.webpage_ingestion_folder
         ensure_directory(output_dir)
-        file_name = f"{current_timestamp().split(' ')[0]}-{slugify(title, max_length=50)}.md"
-        destination = _unique_destination(output_dir / file_name)
+        destination = make_ingestion_destination(output_dir, title)
 
-        body = _build_markdown_note(
+        body = build_ingested_markdown_note(
             title=title,
-            url=url,
+            source_type="webpage",
+            source_url=url,
+            content_heading="Extracted Content",
             content=extracted["content"],
         )
         destination.write_text(body, encoding="utf-8")
@@ -73,50 +77,6 @@ class WebpageIngestionService:
                 f"Webpage ingestion expected HTML content but received '{content_type or 'unknown'}'."
             )
         return response.text
-
-
-def _build_markdown_note(*, title: str, url: str, content: str) -> str:
-    timestamp = current_timestamp()
-    return (
-        "---\n"
-        f'title: "{_escape_frontmatter(title)}"\n'
-        "source_type: webpage\n"
-        f'source_url: "{_escape_frontmatter(url)}"\n'
-        f'ingested_at: "{timestamp}"\n'
-        "---\n\n"
-        f"# {title}\n\n"
-        f"**Source URL:** {url}\n\n"
-        f"**Ingested At:** {timestamp}\n\n"
-        "## Extracted Content\n\n"
-        f"{content}\n"
-    )
-
-
-def _unique_destination(path: Path) -> Path:
-    if not path.exists():
-        return path
-
-    stem = path.stem
-    suffix = path.suffix
-    counter = 2
-    while True:
-        candidate = path.with_name(f"{stem}-{counter}{suffix}")
-        if not candidate.exists():
-            return candidate
-        counter += 1
-
-
-def _escape_frontmatter(value: str) -> str:
-    return value.replace('"', '\\"')
-
-
-def _fallback_title_from_url(url: str) -> str:
-    parsed = urlparse(url)
-    host = parsed.netloc or "webpage"
-    path = parsed.path.strip("/").replace("/", " ")
-    if path:
-        return f"{host} {path}".strip()
-    return host
 
 
 def _extract_webpage_content(html: str) -> dict[str, object]:

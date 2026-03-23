@@ -263,49 +263,92 @@ def _render_ask_tab(
 
 
 def _render_ingest_tab(ingestion_service: IngestionService) -> None:
-    st.subheader("Import a Webpage")
     st.caption(
-        "Use ingestion to save external webpage content into your vault as a normal Markdown note. "
+        "Use ingestion to save external content into your vault as normal Markdown notes. "
         "This is separate from query-time web search."
     )
 
-    st.session_state["ingest_url"] = st.text_input(
-        "Webpage URL",
-        value=st.session_state["ingest_url"],
-        placeholder="https://example.com/article",
-        key="ingest_url_input",
-    )
-    st.session_state["ingest_title"] = st.text_input(
-        "Optional note title",
-        value=st.session_state["ingest_title"],
-        help="Override the saved note title and filename slug.",
-        key="ingest_title_input",
-    )
-    st.session_state["ingest_index_now"] = st.checkbox(
-        "Index immediately after save",
-        value=st.session_state["ingest_index_now"],
-        help="Run the existing incremental index after creating the note.",
-        key="ingest_index_now_checkbox",
-    )
+    webpage_col, youtube_col = st.columns(2)
 
-    if st.button("Ingest Webpage", type="primary"):
-        url = st.session_state["ingest_url"].strip()
-        if not url:
-            st.warning("Enter a webpage URL before starting ingestion.")
-        else:
-            try:
-                response = ingestion_service.ingest_webpage(
-                    IngestionRequest(
-                        source=url,
-                        title_override=st.session_state["ingest_title"].strip() or None,
-                        index_now=st.session_state["ingest_index_now"],
+    with webpage_col:
+        st.subheader("Import a Webpage")
+        st.session_state["ingest_url"] = st.text_input(
+            "Webpage URL",
+            value=st.session_state["ingest_url"],
+            placeholder="https://example.com/article",
+            key="ingest_url_input",
+        )
+        st.session_state["ingest_title"] = st.text_input(
+            "Optional note title",
+            value=st.session_state["ingest_title"],
+            help="Override the saved note title and filename slug.",
+            key="ingest_title_input",
+        )
+        st.session_state["ingest_index_now"] = st.checkbox(
+            "Index immediately after save",
+            value=st.session_state["ingest_index_now"],
+            help="Run the existing incremental index after creating the note.",
+            key="ingest_index_now_checkbox",
+        )
+
+        if st.button("Ingest Webpage", type="primary"):
+            url = st.session_state["ingest_url"].strip()
+            if not url:
+                st.warning("Enter a webpage URL before starting ingestion.")
+            else:
+                try:
+                    response = ingestion_service.ingest_webpage(
+                        IngestionRequest(
+                            source=url,
+                            title_override=st.session_state["ingest_title"].strip() or None,
+                            index_now=st.session_state["ingest_index_now"],
+                        )
                     )
-                )
-                st.session_state["last_ingestion_response"] = response
-                st.success(f"Saved webpage note to {response.saved_path}")
-            except Exception as exc:
-                st.session_state["last_ingestion_response"] = None
-                st.error(str(exc))
+                    st.session_state["last_ingestion_response"] = response
+                    st.success(f"Saved webpage note to {response.saved_path}")
+                except Exception as exc:
+                    st.session_state["last_ingestion_response"] = None
+                    st.error(str(exc))
+
+    with youtube_col:
+        st.subheader("Import a YouTube Video")
+        st.session_state["youtube_url"] = st.text_input(
+            "YouTube URL",
+            value=st.session_state["youtube_url"],
+            placeholder="https://www.youtube.com/watch?v=...",
+            key="youtube_url_input",
+        )
+        st.session_state["youtube_title"] = st.text_input(
+            "Optional video note title",
+            value=st.session_state["youtube_title"],
+            help="Override the saved note title and filename slug.",
+            key="youtube_title_input",
+        )
+        st.session_state["youtube_index_now"] = st.checkbox(
+            "Index YouTube note immediately",
+            value=st.session_state["youtube_index_now"],
+            help="Run the existing incremental index after creating the note.",
+            key="youtube_index_now_checkbox",
+        )
+
+        if st.button("Ingest YouTube", type="primary"):
+            url = st.session_state["youtube_url"].strip()
+            if not url:
+                st.warning("Enter a YouTube URL before starting ingestion.")
+            else:
+                try:
+                    response = ingestion_service.ingest_youtube(
+                        IngestionRequest(
+                            source=url,
+                            title_override=st.session_state["youtube_title"].strip() or None,
+                            index_now=st.session_state["youtube_index_now"],
+                        )
+                    )
+                    st.session_state["last_ingestion_response"] = response
+                    st.success(f"Saved YouTube note to {response.saved_path}")
+                except Exception as exc:
+                    st.session_state["last_ingestion_response"] = None
+                    st.error(str(exc))
 
     response = st.session_state.get("last_ingestion_response")
     if response is None:
@@ -460,6 +503,7 @@ def _render_settings_tab(config: AppConfig, status: IndexResponse | None, status
         st.write(f"Vault path: `{status.vault_path}`")
         st.write(f"Output path: `{status.output_path}`")
         st.write(f"Webpage ingestion folder: `{config.webpage_ingestion_folder}`")
+        st.write(f"YouTube ingestion folder: `{config.youtube_ingestion_folder}`")
         st.write(f"Index schema version: `{status.index_version or 'not set'}`")
         st.write(f"Stored chunks: `{status.total_chunks_stored}`")
         st.write(f"Index compatible: `{'yes' if status.index_compatible else 'no'}`")
@@ -510,6 +554,9 @@ def _init_session_state(config: AppConfig) -> None:
         "ingest_url": "",
         "ingest_title": "",
         "ingest_index_now": config.auto_index_after_ingestion,
+        "youtube_url": "",
+        "youtube_title": "",
+        "youtube_index_now": config.auto_index_after_ingestion,
         "last_ingestion_response": None,
     }
     for key, value in defaults.items():
