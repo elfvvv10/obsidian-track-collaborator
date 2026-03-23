@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from llm import OllamaChatClient
 from retriever import Retriever
-from utils import AnswerResult
+from utils import AnswerResult, RetrievalFilters
 
 
 class ResearchAgent:
@@ -14,9 +14,19 @@ class ResearchAgent:
         self.retriever = retriever
         self.chat_client = chat_client
 
-    def answer(self, question: str) -> AnswerResult:
+    def answer(
+        self,
+        question: str,
+        filters: RetrievalFilters | None = None,
+    ) -> AnswerResult:
         """Answer a question from the indexed Obsidian vault."""
-        chunks = self.retriever.retrieve(question)
+        chunks = self.retriever.retrieve(question, filters=filters)
+        if not chunks:
+            return AnswerResult(
+                answer="No relevant note context matched the current retrieval filters.",
+                sources=[],
+                retrieved_chunks=[],
+            )
         answer = self.chat_client.answer_question(question, chunks)
 
         seen_sources: set[str] = set()

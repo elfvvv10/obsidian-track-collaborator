@@ -5,13 +5,16 @@ A local-first Python CLI that turns an Obsidian vault into a retrieval-augmented
 ## Features
 
 - Reads Markdown notes from an Obsidian vault
-- Chunks note content into retrieval-friendly segments
+- Chunks note content into retrieval-friendly Markdown-aware segments
 - Creates embeddings locally with Ollama
 - Stores embeddings in a local ChromaDB database
 - Retrieves relevant note chunks for a question
+- Supports optional retrieval filters by folder and path text
 - Generates grounded answers with a local Ollama chat model
 - Shows source note references in the terminal
 - Optionally saves answers back into the vault as Markdown notes
+- Uses incremental indexing to update only changed notes
+- Includes mocked test coverage for core clients and CLI behavior
 - Includes a sample vault for quick testing
 
 ## How It Works
@@ -31,18 +34,18 @@ This helps keep answers grounded in your own notes.
 
 The v1 flow is:
 
-`Obsidian vault -> vault loader -> chunker -> Ollama embeddings -> ChromaDB -> retriever -> Ollama chat -> terminal answer -> optional save-back`
+`Obsidian vault -> vault loader -> Markdown-aware chunker -> Ollama embeddings -> ChromaDB -> retriever -> Ollama chat -> terminal answer -> optional save-back`
 
 Core modules:
 
 - `main.py`: CLI entrypoint
 - `config.py`: environment loading and validation
 - `vault_loader.py`: Markdown vault scanning
-- `chunker.py`: chunk creation with overlap
+- `chunker.py`: Markdown-aware chunk creation with overlap
 - `embeddings.py`: Ollama embedding API client
 - `llm.py`: Ollama chat API client
 - `vector_store.py`: ChromaDB persistence
-- `retriever.py`: query embedding + similarity lookup
+- `retriever.py`: query embedding + similarity lookup with optional filters
 - `agent.py`: retrieval + answer orchestration
 - `saver.py`: save answer back to Markdown
 - `utils.py`: shared models and helpers
@@ -128,13 +131,13 @@ Build the local vector index:
 python main.py index
 ```
 
+`index` is incremental. It updates changed notes, adds new notes, and removes deleted notes without rebuilding the whole collection.
+
 Rebuild from scratch:
 
 ```bash
 python main.py rebuild
 ```
-
-For v1, both commands rebuild the stored note chunks from the current vault contents.
 
 ## Ask Questions
 
@@ -142,6 +145,13 @@ Once your notes are indexed:
 
 ```bash
 python main.py ask "What do my notes say about AI agents?"
+```
+
+Optional filters:
+
+```bash
+python main.py ask "What do my notes say about AI agents?" --folder projects
+python main.py ask "What do my notes say about AI agents?" --path-contains agents
 ```
 
 The app will:
@@ -260,22 +270,32 @@ Fix:
 - Raise `TOP_K_RESULTS`
 - Improve note clarity or add more descriptive headings
 
+### Retrieval filters return no results
+
+Symptom:
+
+- The app says no indexed notes matched the requested retrieval filters.
+
+Fix:
+
+- Check the folder path you passed to `--folder`
+- Check the substring you passed to `--path-contains`
+- Retry without filters to confirm the note is indexed
+- Run `python main.py index` after adding or moving notes
+
 ## Limitations of V1
 
-- Chunking is character-based rather than token-aware
-- Indexing is full rebuild only
-- No metadata filters or tag-based search
+- Chunking is Markdown-aware but still heuristic rather than token-aware
+- Metadata filters currently support folder and path text only
 - No GUI or web app
-- No automated tests for live Ollama or Chroma integrations
+- Automated tests use mocks rather than live Ollama integrations
 - Prompting is intentionally simple
 
 ## Suggested V2 Roadmap
 
-- Incremental indexing
-- Better Markdown-aware chunking
 - Source snippet highlighting
 - Configurable prompt templates
-- Metadata filtering by folder, tag, or note type
+- Metadata filtering by tags, frontmatter, or note type
 - Conversation history
 - Simple TUI or desktop UI
-- Automated integration tests with mocked Ollama responses
+- Optional live integration checks for Ollama and Chroma

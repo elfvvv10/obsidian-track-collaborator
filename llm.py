@@ -98,8 +98,10 @@ def build_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
         for index, chunk in enumerate(chunks, start=1):
             title = chunk.metadata.get("note_title", "Untitled note")
             source_path = chunk.metadata.get("source_path", "unknown")
+            heading_context = chunk.metadata.get("heading_context", "")
+            heading_line = f" - {heading_context}" if heading_context else ""
             parts.append(
-                f"[Source {index}] {title} ({source_path})\n{chunk.text}"
+                f"[Source {index}] {title}{heading_line} ({source_path})\n{chunk.text}"
             )
         context_block = "\n\n".join(parts)
 

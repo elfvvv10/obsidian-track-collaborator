@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import hashlib
 import logging
 import re
 from pathlib import Path
@@ -42,6 +43,27 @@ def ensure_directory(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
+def normalize_path(value: str) -> str:
+    """Return a normalized, slash-separated path string."""
+    return value.replace("\\", "/").strip("/")
+
+
+def compute_content_hash(value: str) -> str:
+    """Return a stable content hash."""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def compute_note_fingerprint(path: str, content: str) -> str:
+    """Return a stable fingerprint for a note path and content."""
+    normalized_path = normalize_path(path)
+    return compute_content_hash(f"{normalized_path}\n{content}")
+
+
+def make_note_key(path: str) -> str:
+    """Return a stable key for note-level operations."""
+    return compute_content_hash(normalize_path(path))
+
+
 @dataclass(slots=True)
 class Note:
     """A markdown note loaded from the Obsidian vault."""
@@ -60,6 +82,10 @@ class Chunk:
     source_path: str
     note_title: str
     chunk_index: int
+    source_dir: str = "."
+    heading_context: str = ""
+    note_key: str = ""
+    note_fingerprint: str = ""
 
 
 @dataclass(slots=True)
@@ -78,3 +104,11 @@ class AnswerResult:
     answer: str
     sources: list[str]
     retrieved_chunks: list[RetrievedChunk]
+
+
+@dataclass(slots=True)
+class RetrievalFilters:
+    """Optional filters applied during retrieval."""
+
+    folder: str | None = None
+    path_contains: str | None = None

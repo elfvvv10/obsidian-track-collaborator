@@ -1,4 +1,4 @@
-"""Small smoke tests for local modules."""
+"""Smoke tests for local modules."""
 
 from __future__ import annotations
 
@@ -34,6 +34,28 @@ class ChunkerTests(unittest.TestCase):
         self.assertEqual(chunks[0].note_title, "Test")
         self.assertEqual(chunks[0].source_path, "ideas/test.md")
         self.assertEqual(chunks[1].chunk_index, 1)
+        self.assertTrue(chunks[0].note_fingerprint)
+        self.assertEqual(chunks[0].source_dir, "ideas")
+
+    def test_chunk_notes_prefers_markdown_sections(self) -> None:
+        note = Note(
+            path="notes/agents.md",
+            title="Agents",
+            content=(
+                "# Agents\n\n"
+                "Intro paragraph.\n\n"
+                "## Retrieval\n\n"
+                "Retrieval grounded systems use note context.\n\n"
+                "## Planning\n\n"
+                "Planning helps break down hard tasks."
+            ),
+        )
+
+        chunks = chunk_notes([note], chunk_size=120, overlap=20)
+
+        self.assertGreaterEqual(len(chunks), 2)
+        self.assertEqual(chunks[0].heading_context, "Agents")
+        self.assertIn("Retrieval", {chunk.heading_context for chunk in chunks})
 
 
 if __name__ == "__main__":
