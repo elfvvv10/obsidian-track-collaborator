@@ -100,6 +100,12 @@ def _render_sidebar(config: AppConfig, status: IndexResponse | None) -> None:
             "Auto-save answers",
             value=st.session_state["auto_save"],
         )
+        st.session_state["retrieval_mode"] = st.selectbox(
+            "Retrieval mode",
+            options=["local_only", "auto", "hybrid"],
+            index=["local_only", "auto", "hybrid"].index(st.session_state["retrieval_mode"]),
+            help="Choose local-only, automatic web fallback, or always-on hybrid web use.",
+        )
 
         st.divider()
         st.subheader("App Readiness")
@@ -172,6 +178,7 @@ def _render_ask_tab(
                     options=_current_options(),
                     auto_save=st.session_state["auto_save"],
                     save_title=st.session_state["save_title"].strip() or None,
+                    retrieval_mode=st.session_state["retrieval_mode"],
                 )
                 response = query_service.ask(request)
                 st.session_state["last_query_response"] = response
@@ -187,17 +194,34 @@ def _render_ask_tab(
     for warning in response.warnings:
         st.warning(warning)
 
+    if response.web_used and response.debug.retrieval_mode_requested == "auto":
+        if response.debug.local_retrieval_weak and response.debug.primary_chunks:
+            st.info(
+                "Web fallback was used because local note retrieval looked weak for this question."
+            )
+        elif not response.debug.primary_chunks:
+            st.info(
+                "Web fallback was used because no strong local note context was available."
+            )
+
     summary_col, sources_col = st.columns([3, 2])
     with summary_col:
         st.subheader("Answer")
         st.write(response.answer)
     with sources_col:
         st.subheader("Sources")
-        if response.sources:
-            for source in response.sources:
+        if response.local_sources:
+            for source in response.local_sources:
                 st.write(f"- {source}")
         else:
-            st.write("No sources retrieved.")
+            st.write("- No local note sources")
+        if response.web_sources:
+            st.markdown("**Web Sources**")
+            for source in response.web_sources:
+                st.write(f"- {source}")
+
+    if response.web_used:
+        st.info("External web results contributed to this answer.")
 
     if response.linked_context_chunks:
         with st.expander("Linked Note Context Used", expanded=False):
@@ -210,7 +234,7 @@ def _render_ask_tab(
             for linked_title in linked_titles:
                 st.write(f"- {linked_title}")
 
-    save_disabled = response.has_saved or not response.retrieved_chunks
+    save_disabled = response.has_saved or not (response.retrieved_chunks or response.web_results)
     save_help = "This answer has already been saved." if response.has_saved else None
     if st.button("Save To Vault", disabled=save_disabled, help=save_help):
         try:
@@ -220,6 +244,7 @@ def _render_ask_tab(
                 title_override=st.session_state["save_title"].strip() or None,
             )
             saved_response.debug = response.debug
+            saved_response.web_results = response.web_results
             st.session_state["last_query_response"] = saved_response
             st.success(f"Saved answer to {saved_response.saved_path}")
         except Exception as exc:
@@ -252,12 +277,17 @@ def _render_debug_section(response: QueryResponse) -> None:
                     "boost_tags": list(response.debug.retrieval_options.boost_tags),
                     "include_linked_notes": response.debug.retrieval_options.include_linked_notes,
                 },
+                "retrieval_mode_requested": response.debug.retrieval_mode_requested,
+                "retrieval_mode_used": response.debug.retrieval_mode_used,
+                "web_used": response.debug.web_used,
+                "local_retrieval_weak": response.debug.local_retrieval_weak,
                 "reranking_applied": response.debug.reranking_applied,
             }
         )
 
         _render_chunk_list("Initial Retrieval Candidates", response.debug.initial_candidates)
         _render_chunk_list("Final Selected Chunks", response.retrieved_chunks)
+        _render_web_results(response)
 
 
 def _render_chunk_list(title: str, chunks: list) -> None:
@@ -278,6 +308,23 @@ def _render_chunk_list(title: str, chunks: list) -> None:
             }
         )
         st.code(chunk.text)
+
+
+def _render_web_results(response: QueryResponse) -> None:
+    st.markdown("**Web Results**")
+    if not response.web_results:
+        st.caption("None")
+        return
+    for index, result in enumerate(response.web_results, start=1):
+        st.markdown(f"**Web Result {index}**")
+        st.json(
+            {
+                "title": result.title,
+                "url": result.url,
+                "source_type": result.source_type,
+            }
+        )
+        st.write(result.snippet)
 
 
 def _render_index_tab(index_service: IndexService, status: IndexResponse | None) -> None:
@@ -356,6 +403,7 @@ def _render_settings_tab(config: AppConfig, status: IndexResponse | None) -> Non
     st.caption(
         "Query filters and retrieval controls live in the sidebar so they stay close to the Ask workflow."
     )
+    st.write(f"Current retrieval mode: `{st.session_state['retrieval_mode']}`")
 
 
 def _current_filters() -> RetrievalFilters:
@@ -385,6 +433,7 @@ def _init_session_state(config: AppConfig) -> None:
         "enable_reranking": config.enable_reranking,
         "include_linked": config.enable_linked_note_expansion,
         "auto_save": config.auto_save_answer,
+        "retrieval_mode": "local_only",
         "debug_mode": False,
         "last_query_response": None,
         "last_question": "",

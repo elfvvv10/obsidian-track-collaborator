@@ -15,6 +15,7 @@ from services.common import build_note_alias_map, ensure_index_compatible, resol
 from services.index_service import IndexService
 from services.models import QueryRequest
 from services.query_service import QueryService
+from services.web_search_service import WebSearchService
 from utils import Note
 from utils import RetrievalFilters, RetrievalOptions, get_logger
 
@@ -50,6 +51,7 @@ def main() -> int:
                 candidate_count=args.candidate_count,
                 rerank=args.rerank,
                 auto_save=args.auto_save,
+                retrieval_mode=args.retrieval_mode,
             )
         else:
             parser.print_help()
@@ -118,6 +120,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Save the generated answer without prompting.",
     )
+    ask_parser.add_argument(
+        "--retrieval-mode",
+        choices=["local_only", "auto", "hybrid"],
+        default="local_only",
+        help="Choose whether to use only local notes, automatic web fallback, or hybrid local+web retrieval.",
+    )
     return parser
 
 
@@ -139,6 +147,7 @@ def run_ask(
     candidate_count: int | None = None,
     rerank: bool = False,
     auto_save: bool = False,
+    retrieval_mode: str = "local_only",
 ) -> None:
     """Answer a question from the indexed vault."""
     if top_k is not None and top_k < 1:
@@ -169,6 +178,7 @@ def run_ask(
         embedding_client_cls=OllamaEmbeddingClient,
         chat_client_cls=OllamaChatClient,
         retriever_cls=Retriever,
+        web_search_service_cls=WebSearchService,
         capture_debug_trace=False,
     )
     request = QueryRequest(
@@ -176,12 +186,13 @@ def run_ask(
         filters=filters,
         options=options,
         auto_save=False,
+        retrieval_mode=retrieval_mode,
     )
 
     response = query_service.ask(request)
 
-    if not response.retrieved_chunks:
-        raise RuntimeError("No indexed notes matched the requested retrieval filters.")
+    if not response.retrieved_chunks and not response.web_results:
+        raise RuntimeError("No indexed notes or web results matched the requested retrieval mode and filters.")
 
     print("\nAnswer\n------")
     print(response.answer)

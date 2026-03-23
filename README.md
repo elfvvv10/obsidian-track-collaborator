@@ -1,6 +1,6 @@
 # Obsidian RAG Assistant
 
-A local-first Python Obsidian RAG assistant that runs through a CLI or a lightweight local Streamlit UI, using Ollama for inference and ChromaDB for vector search.
+A local-first Python Obsidian RAG assistant that runs through a CLI or a lightweight local Streamlit UI, using Ollama for inference and ChromaDB for vector search, with optional external web evidence when enabled.
 
 ## Features
 
@@ -17,6 +17,7 @@ A local-first Python Obsidian RAG assistant that runs through a CLI or a lightwe
 - Generates grounded answers with a local Ollama chat model
 - Shows source note references in the terminal
 - Includes a lightweight local Streamlit UI for asking questions, indexing, and debugging
+- Supports optional external web search as a separate evidence path
 - Optionally saves answers back into the vault as Markdown notes
 - Uses incremental indexing to update only changed notes
 - Excludes saved answers in the configured output folder from indexing when that folder lives inside the vault
@@ -42,6 +43,10 @@ The current flow is:
 
 `Obsidian vault -> vault loader -> configurable chunker -> Ollama embeddings -> ChromaDB -> retriever -> optional reranker -> Ollama chat -> terminal answer -> optional save-back`
 
+Optional web search is handled separately through the service layer:
+
+`Question -> local retrieval path -> optional web-search service -> Ollama chat with separated local/web evidence`
+
 The app now also includes a thin service layer so both the CLI and UI can share the same orchestration path without duplicating business logic.
 
 Core modules:
@@ -50,6 +55,7 @@ Core modules:
 - `config.py`: environment loading and validation
 - `services/index_service.py`: shared indexing/build flow for CLI and UI
 - `services/query_service.py`: shared query + answer flow for CLI and UI
+- `services/web_search_service.py`: optional external search orchestration
 - `services/models.py`: structured request/response models for service consumers
 - `services/common.py`: shared service helpers such as link resolution and index checks
 - `streamlit_app.py`: lightweight local UI
@@ -60,6 +66,7 @@ Core modules:
 - `vector_store.py`: ChromaDB persistence
 - `retriever.py`: query embedding + candidate retrieval + optional reranking
 - `reranker.py`: lightweight heuristic reranking
+- `web_search.py`: lightweight web search clients and result model
 - `metadata_parser.py`: frontmatter and tag parsing helpers
 - `link_parser.py`: Obsidian link parsing helpers
 - `agent.py`: retrieval + answer orchestration
@@ -137,6 +144,10 @@ ENABLE_LINKED_NOTE_EXPANSION=false
 MAX_LINKED_NOTES=2
 LINKED_NOTE_CHUNKS_PER_NOTE=1
 AUTO_SAVE_ANSWER=false
+WEB_SEARCH_PROVIDER=wikipedia
+WEB_SEARCH_API_URL=
+WEB_SEARCH_MAX_RESULTS=3
+WEB_SEARCH_TIMEOUT_SECONDS=10
 ```
 
 Variable notes:
@@ -158,6 +169,10 @@ Variable notes:
 - `MAX_LINKED_NOTES`: maximum linked notes to expand per question
 - `LINKED_NOTE_CHUNKS_PER_NOTE`: chunks to include from each linked note
 - `AUTO_SAVE_ANSWER`: save answers automatically without prompting
+- `WEB_SEARCH_PROVIDER`: external search provider. `wikipedia` is the default no-key option. `duckduckgo` remains available as an alternative.
+- `WEB_SEARCH_API_URL`: optional provider endpoint override. Leave blank to use the provider default.
+- `WEB_SEARCH_MAX_RESULTS`: maximum number of external results to include
+- `WEB_SEARCH_TIMEOUT_SECONDS`: timeout for external web search requests
 
 ## Index Your Notes
 
@@ -200,6 +215,8 @@ python main.py ask "What do my notes say about AI agents?" --boost-tag agents --
 python main.py ask "What do my notes say about AI agents?" --include-linked
 python main.py ask "What do my notes say about AI agents?" --auto-save
 python main.py ask "What do my notes say about AI agents?" --top-k 2 --candidate-count 6 --rerank
+python main.py ask "What happened in AI this week?" --retrieval-mode auto
+python main.py ask "Summarize local notes and web context for local models" --retrieval-mode hybrid
 ```
 
 The app will:
@@ -209,6 +226,15 @@ The app will:
 3. Send the retrieved context and your question to Ollama
 4. Print the answer and sources in the terminal
 5. Ask whether you want to save the answer as a Markdown note
+
+### Retrieval Modes
+
+- `local_only`: use only your Obsidian vault. This is the default and preserves the original local-first behavior.
+- `auto`: try local retrieval first, and use web search only when local evidence is missing or weak.
+- `hybrid`: use local retrieval and web search together, even if local evidence exists.
+
+When web search is used, local note sources and web sources are labeled separately in both the CLI and UI.
+The default provider is now Wikipedia search because it is a more reliable no-key option than the previous DuckDuckGo-only path.
 
 ## Run the Local UI
 
@@ -222,8 +248,8 @@ streamlit run streamlit_app.py
 
 The UI includes three main areas:
 
-- `Sidebar`: query filters and retrieval controls such as folder, path text, tag, top-k, reranking, linked-note expansion, and auto-save
-- `Ask`: question input, answer display, sources, save actions, linked-note context, and an optional debug view of retrieval stages
+- `Sidebar`: query filters and retrieval controls such as folder, path text, tag, top-k, reranking, linked-note expansion, auto-save, and retrieval mode
+- `Ask`: question input, answer display, separate local/web sources, save actions, linked-note context, and an optional debug view of retrieval stages
 - `Index`: readiness messages plus build and rebuild actions
 - `Settings / Debug`: active models, paths, app readiness, index compatibility, and the debug toggle
 
@@ -280,6 +306,7 @@ When `OBSIDIAN_OUTPUT_PATH` points to a folder inside the vault, saved answer no
 ├── vector_store.py
 ├── retriever.py
 ├── reranker.py
+├── web_search.py
 ├── agent.py
 ├── streamlit_app.py
 ├── saver.py
@@ -288,7 +315,8 @@ When `OBSIDIAN_OUTPUT_PATH` points to a folder inside the vault, saved answer no
 │   ├── common.py
 │   ├── index_service.py
 │   ├── models.py
-│   └── query_service.py
+│   ├── query_service.py
+│   └── web_search_service.py
 ├── requirements.txt
 ├── .env.example
 ├── README.md
@@ -302,7 +330,7 @@ The `tests/` directory includes:
 - local module and smoke tests
 - orchestration-level integration tests using temporary vaults and real local indexing/retrieval flow
 - service-layer tests for UI-facing query and status responses
-- phase-focused tests for retrieval, metadata, links, and save-back behavior
+- phase-focused tests for retrieval, metadata, links, save-back behavior, and optional web search
 
 ## Troubleshooting
 
@@ -359,6 +387,20 @@ Fix:
 - Increase note coverage in your vault
 - Raise `TOP_K_RESULTS`
 - Improve note clarity or add more descriptive headings
+- In `auto` mode, weak local retrieval may trigger external web fallback
+
+### Web search is unavailable
+
+Symptom:
+
+- The app warns that web search was requested but unavailable.
+
+Fix:
+
+- Check your internet connection
+- Verify `WEB_SEARCH_PROVIDER`
+- Verify `WEB_SEARCH_API_URL` if you overrode the default
+- Retry in `local_only` mode if you want to stay fully local
 
 ### Retrieval filters return no results
 
@@ -393,6 +435,9 @@ This can happen after retrieval-relevant schema changes such as new metadata fie
 - Metadata filters are still intentionally simple: folder, path text, and tag-based controls only
 - The Streamlit UI is intentionally lightweight and does not yet include persistent chat history or advanced source inspection workflows
 - The UI exposes retrieval/debug structure intended to support future features, but it is still intentionally simple
+- Web search is optional and external, so its availability and result quality depend on the configured provider
+- The default provider is Wikipedia search, which is more reliable than the previous DuckDuckGo-only approach but is still narrower than a full general web search engine
+- External web evidence is kept separate from local notes, but answer quality still depends on prompt quality and source quality
 - Automated tests are strong locally, but live Ollama behavior is still mostly verified manually
 - Prompting is intentionally simple
 

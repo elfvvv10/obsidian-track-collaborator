@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from utils import AnswerResult, RetrievedChunk, RetrievalFilters, RetrievalOptions
+from web_search import WebSearchResult
 
 
 @dataclass(slots=True)
@@ -17,6 +18,7 @@ class QueryRequest:
     options: RetrievalOptions = field(default_factory=RetrievalOptions)
     auto_save: bool = False
     save_title: str | None = None
+    retrieval_mode: str = "local_only"
 
 
 @dataclass(slots=True)
@@ -29,6 +31,10 @@ class QueryDebugInfo:
     reranking_changed: bool = False
     retrieval_filters: RetrievalFilters = field(default_factory=RetrievalFilters)
     retrieval_options: RetrievalOptions = field(default_factory=RetrievalOptions)
+    retrieval_mode_requested: str = "local_only"
+    retrieval_mode_used: str = "local_only"
+    local_retrieval_weak: bool = False
+    web_used: bool = False
 
 
 @dataclass(slots=True)
@@ -38,6 +44,7 @@ class QueryResponse:
     answer_result: AnswerResult
     warnings: list[str] = field(default_factory=list)
     linked_context_chunks: list[RetrievedChunk] = field(default_factory=list)
+    web_results: list[WebSearchResult] = field(default_factory=list)
     saved_path: Path | None = None
     debug: QueryDebugInfo = field(default_factory=QueryDebugInfo)
 
@@ -56,6 +63,18 @@ class QueryResponse:
     @property
     def has_saved(self) -> bool:
         return self.saved_path is not None
+
+    @property
+    def web_used(self) -> bool:
+        return bool(self.web_results)
+
+    @property
+    def local_sources(self) -> list[str]:
+        return [source for source in self.answer_result.sources if source.startswith("[Local]")]
+
+    @property
+    def web_sources(self) -> list[str]:
+        return [source for source in self.answer_result.sources if source.startswith("[Web]")]
 
 
 @dataclass(slots=True)

@@ -32,6 +32,10 @@ class AppConfig:
     max_linked_notes: int = 2
     linked_note_chunks_per_note: int = 1
     auto_save_answer: bool = False
+    web_search_provider: str = "wikipedia"
+    web_search_api_url: str = ""
+    web_search_max_results: int = 3
+    web_search_timeout_seconds: int = 10
     chroma_collection_name: str = "obsidian_notes"
     ollama_timeout_seconds: int = 60
 
@@ -65,6 +69,14 @@ def load_config() -> AppConfig:
     max_linked_notes = _required_int_env("MAX_LINKED_NOTES", default=2, minimum=1)
     linked_note_chunks_per_note = _required_int_env("LINKED_NOTE_CHUNKS_PER_NOTE", default=1, minimum=1)
     auto_save_answer = _bool_env("AUTO_SAVE_ANSWER", default=False)
+    web_search_provider = _choice_env(
+        "WEB_SEARCH_PROVIDER",
+        default="wikipedia",
+        choices={"wikipedia", "duckduckgo"},
+    )
+    web_search_api_url = os.getenv("WEB_SEARCH_API_URL", "").strip().rstrip("/")
+    web_search_max_results = _required_int_env("WEB_SEARCH_MAX_RESULTS", default=3, minimum=1)
+    web_search_timeout_seconds = _required_int_env("WEB_SEARCH_TIMEOUT_SECONDS", default=10, minimum=1)
 
     ensure_directory(output_path)
     ensure_directory(chroma_path)
@@ -90,6 +102,10 @@ def load_config() -> AppConfig:
         max_linked_notes=max_linked_notes,
         linked_note_chunks_per_note=linked_note_chunks_per_note,
         auto_save_answer=auto_save_answer,
+        web_search_provider=web_search_provider,
+        web_search_api_url=web_search_api_url,
+        web_search_max_results=web_search_max_results,
+        web_search_timeout_seconds=web_search_timeout_seconds,
     )
 
 

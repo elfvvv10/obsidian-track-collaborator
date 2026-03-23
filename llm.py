@@ -10,12 +10,14 @@ from requests.exceptions import RequestException
 
 from config import AppConfig
 from utils import RetrievedChunk
+from web_search import WebSearchResult
 
 
 SYSTEM_PROMPT = """You are a careful research assistant for an Obsidian vault.
 Answer using the provided note context whenever possible.
 If the context is weak, incomplete, or irrelevant, say that clearly instead of guessing.
-Include source references using the note title or file path when they support the answer."""
+Include source references using the note title, file path, or web source when they support the answer.
+When external web evidence is provided, keep it distinct from the user's local notes."""
 
 
 class OllamaChatClient:
@@ -26,10 +28,17 @@ class OllamaChatClient:
         self.model = config.ollama_chat_model
         self.timeout = config.ollama_timeout_seconds
 
-    def answer_question(self, question: str, chunks: list[RetrievedChunk]) -> str:
+    def answer_question(
+        self,
+        question: str,
+        chunks: list[RetrievedChunk],
+        *,
+        web_results: list[WebSearchResult] | None = None,
+        retrieval_mode: str = "local_only",
+    ) -> str:
         """Send a grounded chat prompt to Ollama and return the answer."""
         self._ensure_model_available()
-        user_prompt = build_prompt(question, chunks)
+        user_prompt = build_prompt(question, chunks, web_results=web_results or [], retrieval_mode=retrieval_mode)
 
         response = self._post_with_retry(
             "/api/chat",
@@ -89,10 +98,17 @@ class OllamaChatClient:
         return response
 
 
-def build_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
+def build_prompt(
+    question: str,
+    chunks: list[RetrievedChunk],
+    *,
+    web_results: list[WebSearchResult] | None = None,
+    retrieval_mode: str = "local_only",
+) -> str:
     """Build a grounded prompt from retrieved chunks and the user question."""
+    web_results = web_results or []
     if not chunks:
-        context_block = "No relevant note context was retrieved."
+        local_context_block = "No relevant note context was retrieved."
     else:
         parts = []
         for index, chunk in enumerate(chunks, start=1):
@@ -115,14 +131,32 @@ def build_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
                 f"Path: {source_path}{tag_line}{score_line}\n"
                 f"Content:\n{chunk.text}"
             )
-        context_block = "\n\n".join(parts)
+        local_context_block = "\n\n".join(parts)
+
+    if not web_results:
+        web_context_block = "No external web evidence was used."
+    else:
+        parts = []
+        for index, result in enumerate(web_results, start=1):
+            parts.append(
+                f"[Web Source {index}]\n"
+                f"Title: {result.title}\n"
+                f"URL: {result.url}\n"
+                f"Snippet:\n{result.snippet}"
+            )
+        web_context_block = "\n\n".join(parts)
 
     return (
-        "Use the following retrieved note context to answer the question.\n\n"
-        f"{context_block}\n\n"
+        "Use the following evidence to answer the question.\n\n"
+        "Local note context:\n"
+        f"{local_context_block}\n\n"
+        "External web evidence:\n"
+        f"{web_context_block}\n\n"
         f"Question: {question}\n\n"
+        f"Retrieval mode: {retrieval_mode}\n\n"
         "Respond with a concise, grounded answer. If the context is missing or insufficient, "
-        "say so clearly."
+        "say so clearly. Prefer the user's local notes for note-specific questions, and only use "
+        "external web evidence as external information."
     )
 
 
