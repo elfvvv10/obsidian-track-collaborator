@@ -273,16 +273,19 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
         "Webpage URL",
         value=st.session_state["ingest_url"],
         placeholder="https://example.com/article",
+        key="ingest_url_input",
     )
     st.session_state["ingest_title"] = st.text_input(
         "Optional note title",
         value=st.session_state["ingest_title"],
         help="Override the saved note title and filename slug.",
+        key="ingest_title_input",
     )
     st.session_state["ingest_index_now"] = st.checkbox(
         "Index immediately after save",
         value=st.session_state["ingest_index_now"],
         help="Run the existing incremental index after creating the note.",
+        key="ingest_index_now_checkbox",
     )
 
     if st.button("Ingest Webpage", type="primary"):
