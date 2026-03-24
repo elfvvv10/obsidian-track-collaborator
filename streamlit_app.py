@@ -190,7 +190,8 @@ def _render_ask_tab(
 ) -> None:
     if st.session_state.get("reset_ask_form"):
         for key in (
-            "question",
+            "question_input",
+            "submitted_message",
             "save_title",
             "workflow_genre",
             "workflow_bpm",
@@ -226,7 +227,7 @@ def _render_ask_tab(
     chat_workspace_enabled = selected_workflow.value in _CHAT_TASK_WORKFLOWS
     ask_clicked = False
     clear_clicked = False
-    question = st.session_state["question"]
+    question = ""
 
     main_col, control_col = st.columns([3, 1.4], gap="large")
     with control_col:
@@ -332,6 +333,7 @@ def _render_ask_tab(
         if chat_workspace_enabled:
             st.markdown("### Session Chat")
             st.caption("Read the latest turn above, then reply immediately below to keep the collaboration moving.")
+            _render_chat_debug_panel(selected_workflow.value)
             with st.container(border=True):
                 _render_chat_history()
                 if not st.session_state.get("chat_messages"):
@@ -343,12 +345,17 @@ def _render_ask_tab(
                 with st.form("chat_composer", clear_on_submit=False, enter_to_submit=False):
                     question = st.text_area(
                         "Message",
-                        key="question",
+                        key="question_input",
                         placeholder="Ask a follow-up, request implementation help, or refine the current idea.",
                         height=110,
                         label_visibility="collapsed",
                     )
-                    ask_clicked = st.form_submit_button("Send", type="primary", use_container_width=True)
+                    ask_clicked = st.form_submit_button(
+                        "Send",
+                        type="primary",
+                        use_container_width=True,
+                        on_click=_submit_question_from_input,
+                    )
         else:
             st.markdown("### Composer")
             st.caption("This workflow keeps a simpler ask/answer flow. Music chat continuity becomes active for critique, arrangement, and sound design workflows.")
@@ -356,29 +363,35 @@ def _render_ask_tab(
                 with st.form("ask_composer", clear_on_submit=False, enter_to_submit=False):
                     question = st.text_area(
                         "Prompt",
-                        key="question",
+                        key="question_input",
                         placeholder="Describe the track idea, style target, arrangement problem, sound design goal, or research question.",
                         height=120,
                         label_visibility="collapsed",
                     )
-                    ask_clicked = st.form_submit_button("Send", type="primary", use_container_width=True)
+                    ask_clicked = st.form_submit_button(
+                        "Send",
+                        type="primary",
+                        use_container_width=True,
+                        on_click=_submit_question_from_input,
+                    )
 
     if clear_clicked:
         st.session_state["reset_ask_form"] = True
         st.rerun()
 
     if ask_clicked:
-        if not question.strip():
+        submitted_question = st.session_state.get("submitted_message", "").strip()
+        if not submitted_question:
             st.warning("Enter a question before asking.")
         else:
             try:
                 chat_messages = list(st.session_state["chat_messages"])
                 if chat_workspace_enabled:
                     chat_messages.append(
-                        ChatMessage(role="user", content=question.strip(), created_at=current_timestamp())
+                        ChatMessage(role="user", content=submitted_question, created_at=current_timestamp())
                     )
                 request = QueryRequest(
-                    question=question.strip(),
+                    question=submitted_question,
                     filters=_current_filters(),
                     options=_current_options(),
                     auto_save=st.session_state["auto_save"],
@@ -400,7 +413,7 @@ def _render_ask_tab(
                 if st.session_state["collaboration_workflow"] == CollaborationWorkflow.RESEARCH_SESSION.value:
                     response = research_service.research(
                         ResearchRequest(
-                            goal=question.strip(),
+                            goal=submitted_question,
                             filters=request.filters,
                             options=request.options,
                             auto_save=request.auto_save,
@@ -425,10 +438,13 @@ def _render_ask_tab(
                     )
                     st.session_state["chat_messages"] = chat_messages
                 st.session_state["last_query_response"] = response
-                st.session_state["last_question"] = question.strip()
-                st.session_state["question"] = ""
+                st.session_state["last_question"] = submitted_question
+                st.session_state["submitted_message"] = ""
+                if chat_workspace_enabled and not isinstance(response, ResearchResponse):
+                    st.rerun()
             except Exception as exc:
                 st.session_state["last_query_response"] = None
+                st.session_state["submitted_message"] = ""
                 st.error(str(exc))
 
     response = st.session_state.get("last_query_response")
@@ -436,120 +452,122 @@ def _render_ask_tab(
         return
 
     if isinstance(response, ResearchResponse):
-        _render_research_response(question, response, research_service)
+        _render_research_response(st.session_state.get("last_question", ""), response, research_service)
         return
 
-    for warning in response.warnings:
-        st.warning(warning)
+    detail_container = st.expander("Latest Response Details", expanded=not chat_workspace_enabled)
+    with detail_container:
+        for warning in response.warnings:
+            st.warning(warning)
 
-    with st.expander("Answer Mode and Evidence Guide", expanded=False):
-        st.write("Strict — Retrieved evidence only; says when evidence is missing.")
-        st.write("Balanced — Evidence first, limited model reasoning.")
-        st.write("Exploratory — Evidence plus broader synthesis and labeled inference.")
-        st.write("Local = your Obsidian notes.")
-        st.write("Web = external search results.")
-        st.write("Inference = model synthesis beyond directly retrieved evidence.")
+        with st.expander("Answer Mode and Evidence Guide", expanded=False):
+            st.write("Strict — Retrieved evidence only; says when evidence is missing.")
+            st.write("Balanced — Evidence first, limited model reasoning.")
+            st.write("Exploratory — Evidence plus broader synthesis and labeled inference.")
+            st.write("Local = your Obsidian notes.")
+            st.write("Web = external search results.")
+            st.write("Inference = model synthesis beyond directly retrieved evidence.")
 
-    if response.web_used and response.debug.retrieval_mode_requested == "auto":
-        if response.debug.local_retrieval_weak and response.debug.primary_chunks:
-            st.info(
-                "Web fallback was used because local note retrieval looked weak for this question."
+        if response.web_used and response.debug.retrieval_mode_requested == "auto":
+            if response.debug.local_retrieval_weak and response.debug.primary_chunks:
+                st.info(
+                    "Web fallback was used because local note retrieval looked weak for this question."
+                )
+            elif not response.debug.primary_chunks:
+                st.info(
+                    "Web fallback was used because no strong local note context was available."
+                )
+        if response.debug.web_query_strategy.value == "local_guided" and response.web_used:
+            st.info("External web search was narrowed using the strongest local note topics.")
+        if response.debug.web_alignment_warning:
+            st.info(response.debug.web_alignment_warning)
+        if response.debug.web_attempts:
+            st.caption(f"Web query used: {response.debug.web_query_used}")
+        if response.debug.web_retry_used:
+            st.info("A lighter retry web query was attempted after the first web-search attempt failed.")
+        if not response.web_used and response.debug.web_failure_reason:
+            st.warning(
+                "No web sources were used. "
+                + {
+                    "provider_returned_no_results": "The provider returned no results for the attempted web query.",
+                    "all_results_filtered_out": "Returned web results were discarded because they did not align with the local topic.",
+                    "provider_error": "The web-search provider could not be reached successfully.",
+                }.get(response.debug.web_failure_reason, "No usable web evidence was found.")
             )
-        elif not response.debug.primary_chunks:
-            st.info(
-                "Web fallback was used because no strong local note context was available."
-            )
-    if response.debug.web_query_strategy.value == "local_guided" and response.web_used:
-        st.info("External web search was narrowed using the strongest local note topics.")
-    if response.debug.web_alignment_warning:
-        st.info(response.debug.web_alignment_warning)
-    if response.debug.web_attempts:
-        st.caption(f"Web query used: {response.debug.web_query_used}")
-    if response.debug.web_retry_used:
-        st.info("A lighter retry web query was attempted after the first web-search attempt failed.")
-    if not response.web_used and response.debug.web_failure_reason:
-        st.warning(
-            "No web sources were used. "
-            + {
-                "provider_returned_no_results": "The provider returned no results for the attempted web query.",
-                "all_results_filtered_out": "Returned web results were discarded because they did not align with the local topic.",
-                "provider_error": "The web-search provider could not be reached successfully.",
-            }.get(response.debug.web_failure_reason, "No usable web evidence was found.")
-        )
 
-    status_cols = st.columns(5)
-    status_cols[0].metric("Answer mode", response.answer_mode_used.value)
-    status_cols[1].metric("Retrieval mode", str(response.debug.retrieval_mode_used))
-    status_cols[2].metric("Retrieval scope", response.debug.retrieval_scope_requested.value)
-    status_cols[3].metric("Web used", "Yes" if response.web_used else "No")
-    status_cols[4].metric("Inference used", "Yes" if response.inference_used else "No")
+        status_cols = st.columns(5)
+        status_cols[0].metric("Answer mode", response.answer_mode_used.value)
+        status_cols[1].metric("Retrieval mode", str(response.debug.retrieval_mode_used))
+        status_cols[2].metric("Retrieval scope", response.debug.retrieval_scope_requested.value)
+        status_cols[3].metric("Web used", "Yes" if response.web_used else "No")
+        status_cols[4].metric("Inference used", "Yes" if response.inference_used else "No")
 
-    trust_cols = st.columns(4)
-    trust_cols[0].metric("Curated knowledge chunks", response.debug.curated_knowledge_chunks)
-    trust_cols[1].metric("Imported knowledge chunks", response.debug.imported_knowledge_chunks)
-    trust_cols[2].metric("Non-curated note chunks", response.debug.non_curated_note_chunks)
-    trust_cols[3].metric("Generated draft chunks", response.debug.generated_or_imported_chunks)
+        trust_cols = st.columns(4)
+        trust_cols[0].metric("Curated knowledge chunks", response.debug.curated_knowledge_chunks)
+        trust_cols[1].metric("Imported knowledge chunks", response.debug.imported_knowledge_chunks)
+        trust_cols[2].metric("Non-curated note chunks", response.debug.non_curated_note_chunks)
+        trust_cols[3].metric("Generated draft chunks", response.debug.generated_or_imported_chunks)
 
-    st.subheader("Latest Response Sources")
-    with st.container():
-        if response.curated_chunks:
-            st.markdown("**Curated Knowledge**")
-            for chunk in response.curated_chunks:
-                st.write(f"- {_source_line_from_chunk(chunk, label='[Local]')}")
-        if response.imported_chunks:
-            st.markdown("**Imported Knowledge**")
-            for chunk in response.imported_chunks:
-                st.write(f"- {_source_line_from_chunk(chunk, label='[Import]')}")
-        if response.non_curated_chunks:
-            st.markdown("**Non-Curated Notes**")
-            for chunk in response.non_curated_chunks:
-                st.write(f"- {_source_line_from_chunk(chunk, label='[Local]')}")
-        if not response.curated_chunks and not response.imported_chunks and not response.non_curated_chunks:
-            st.write("- No local note sources")
-        if response.saved_sources:
-            st.markdown("**Generated Draft Sources**")
-            for source in response.saved_sources:
-                st.write(f"- {source}")
-        if response.imported_sources:
-            st.markdown("**Imported Sources**")
-            for source in response.imported_sources:
-                st.write(f"- {source}")
-        if response.web_sources:
-            st.markdown("**Web Sources**")
-            for source in response.web_sources:
-                st.write(f"- {source}")
+        st.subheader("Latest Response Sources")
+        with st.container():
+            if response.curated_chunks:
+                st.markdown("**Curated Knowledge**")
+                for chunk in response.curated_chunks:
+                    st.write(f"- {_source_line_from_chunk(chunk, label='[Local]')}")
+            if response.imported_chunks:
+                st.markdown("**Imported Knowledge**")
+                for chunk in response.imported_chunks:
+                    st.write(f"- {_source_line_from_chunk(chunk, label='[Import]')}")
+            if response.non_curated_chunks:
+                st.markdown("**Non-Curated Notes**")
+                for chunk in response.non_curated_chunks:
+                    st.write(f"- {_source_line_from_chunk(chunk, label='[Local]')}")
+            if not response.curated_chunks and not response.imported_chunks and not response.non_curated_chunks:
+                st.write("- No local note sources")
+            if response.saved_sources:
+                st.markdown("**Generated Draft Sources**")
+                for source in response.saved_sources:
+                    st.write(f"- {source}")
+            if response.imported_sources:
+                st.markdown("**Imported Sources**")
+                for source in response.imported_sources:
+                    st.write(f"- {source}")
+            if response.web_sources:
+                st.markdown("**Web Sources**")
+                for source in response.web_sources:
+                    st.write(f"- {source}")
 
-    if response.web_used:
-        st.info("External web results contributed to this answer.")
+        if response.web_used:
+            st.info("External web results contributed to this answer.")
 
-    if response.linked_context_chunks:
-        with st.expander("Linked Note Context Used", expanded=False):
-            linked_titles = sorted(
-                {
-                    f"{chunk.metadata.get('note_title', 'Untitled')} ({chunk.metadata.get('source_path', 'unknown')})"
-                    for chunk in response.linked_context_chunks
-                }
-            )
-            for linked_title in linked_titles:
-                st.write(f"- {linked_title}")
+        if response.linked_context_chunks:
+            with st.expander("Linked Note Context Used", expanded=False):
+                linked_titles = sorted(
+                    {
+                        f"{chunk.metadata.get('note_title', 'Untitled')} ({chunk.metadata.get('source_path', 'unknown')})"
+                        for chunk in response.linked_context_chunks
+                    }
+                )
+                for linked_title in linked_titles:
+                    st.write(f"- {linked_title}")
 
-    save_disabled = response.has_saved or not (response.retrieved_chunks or response.web_results)
-    save_help = "This answer has already been saved." if response.has_saved else None
-    if st.button("Save To Vault", disabled=save_disabled, help=save_help):
-        try:
-            saved_response = query_service.save(
-                st.session_state.get("last_question", question.strip()),
-                response.answer_result,
-                title_override=st.session_state["save_title"].strip() or None,
-                existing_response=response,
-            )
-            st.session_state["last_query_response"] = saved_response
-            st.success(f"Saved answer to {saved_response.saved_path}")
-        except Exception as exc:
-            st.error(str(exc))
+        save_disabled = response.has_saved or not (response.retrieved_chunks or response.web_results)
+        save_help = "This answer has already been saved." if response.has_saved else None
+        if st.button("Save To Vault", disabled=save_disabled, help=save_help):
+            try:
+                saved_response = query_service.save(
+                    st.session_state.get("last_question", question.strip()),
+                    response.answer_result,
+                    title_override=st.session_state["save_title"].strip() or None,
+                    existing_response=response,
+                )
+                st.session_state["last_query_response"] = saved_response
+                st.success(f"Saved answer to {saved_response.saved_path}")
+            except Exception as exc:
+                st.error(str(exc))
 
-    if st.session_state["debug_mode"]:
-        _render_debug_section(response)
+        if st.session_state["debug_mode"]:
+            _render_debug_section(response)
 
 
 def _render_research_response(
@@ -1032,6 +1050,24 @@ def _render_chat_history() -> None:
             st.caption(f"{message.role.title()} message {index + 1} • {message.created_at}")
 
 
+def _render_chat_debug_panel(workflow_value: str) -> None:
+    """Temporary Ask-tab debug output for chat-state verification."""
+    with st.expander("Temporary Chat Debug", expanded=False):
+        chat_messages = st.session_state.get("chat_messages", [])
+        last_message = chat_messages[-1] if chat_messages else None
+        last_preview = (
+            f"{last_message.role}: {last_message.content[:120]}"
+            if last_message is not None
+            else "No messages yet."
+        )
+        st.caption("Temporary debug block for chat-state verification. Safe to remove after the display issue is confirmed fixed.")
+        st.write(f"Workflow: `{workflow_value}`")
+        st.write(f"Chat workspace enabled: `{workflow_value in _CHAT_TASK_WORKFLOWS}`")
+        st.write(f"Chat message count: `{len(chat_messages)}`")
+        st.write(f"Last message preview: `{last_preview}`")
+        st.write(f"last_query_response exists: `{st.session_state.get('last_query_response') is not None}`")
+
+
 def _render_task_panel() -> None:
     with st.expander("Session Tasks", expanded=True):
         st.caption("Tasks are session-only and are used as internal execution context for critique, arrangement, and sound-design workflows.")
@@ -1119,9 +1155,15 @@ def _tasks_for_prompt(
     return open_tasks + completed_tasks
 
 
+def _submit_question_from_input() -> None:
+    st.session_state["submitted_message"] = st.session_state.get("question_input", "").strip()
+    st.session_state["question_input"] = ""
+
+
 def _init_session_state(config: AppConfig) -> None:
     defaults = {
-        "question": "",
+        "question_input": "",
+        "submitted_message": "",
         "folder_filter": "",
         "path_filter": "",
         "tag_filter": "",
