@@ -222,23 +222,17 @@ def _render_ask_tab(
         elif not status.index_compatible:
             st.warning("The local index is out of date. Rebuild it from the Index tab.")
 
-    _render_task_panel()
-    st.markdown("### Session Chat")
-    st.caption("This session keeps the current chat and tasks in memory only. Reset Session clears both.")
-    _render_chat_history()
-    st.markdown("### Composer")
-    st.caption("Write your next message, tune the workflow if needed, then press Send.")
-    with st.form("ask_composer", clear_on_submit=False, enter_to_submit=False):
-        question_col, save_col = st.columns([3, 2])
-        with question_col:
-            question = st.text_area(
-                "Prompt",
-                key="question",
-                placeholder="Describe the track idea, style target, arrangement problem, sound design goal, or research question.",
-                height=120,
-                label_visibility="collapsed",
-            )
-            st.markdown("#### Collaboration Workflow")
+    selected_workflow = CollaborationWorkflow.coerce(st.session_state["collaboration_workflow"])
+    chat_workspace_enabled = selected_workflow.value in _CHAT_TASK_WORKFLOWS
+    ask_clicked = False
+    clear_clicked = False
+    question = st.session_state["question"]
+
+    main_col, control_col = st.columns([3, 1.4], gap="large")
+    with control_col:
+        st.markdown("### Workspace Controls")
+        st.caption("Workflow, context, reset, and tasks stay close by without interrupting the conversation flow.")
+        with st.form("ask_workspace_controls", clear_on_submit=False, enter_to_submit=False):
             workflow_options = [workflow.value for workflow in CollaborationWorkflow]
             selected_workflow_value = st.selectbox(
                 "Workflow",
@@ -263,67 +257,39 @@ def _render_ask_tab(
                     key="max_subquestions",
                 )
 
-            with st.container(border=True):
-                st.markdown("#### Optional Context")
-                input_col1, input_col2 = st.columns(2)
-                with input_col1:
-                    st.text_input(
-                        "Genre / Style",
-                        key="workflow_genre",
-                        help="Examples: house, techno, melodic techno, trance, garage, breakbeat.",
-                    )
-                    st.text_input(
-                        "References",
-                        key="workflow_references",
-                        help="Artists, tracks, labels, or scenes.",
-                    )
-                    st.text_area(
-                        "Arrangement Notes",
-                        key="workflow_arrangement_notes",
-                        height=90,
-                    )
-                    st.text_area(
-                        "Sound Palette",
-                        key="workflow_sound_palette",
-                        height=90,
-                    )
-                    st.text_input(
-                        "Role of Key Elements",
-                        key="workflow_role_of_key_elements",
-                        help="What the kick, bass, lead, textures, or vocal should do in the track.",
-                    )
-                    st.text_input(
-                        "Track Context Path",
-                        key="workflow_track_context_path",
-                        help="Vault-relative project folder or track_context.md path, for example Projects/Moonlit Driver or Projects/Moonlit Driver/track_context.md.",
-                    )
-                with input_col2:
-                    st.text_input(
-                        "BPM / Tempo",
-                        key="workflow_bpm",
-                    )
-                    st.text_input(
-                        "Mood / Energy",
-                        key="workflow_mood",
-                    )
-                    st.text_area(
-                        "Instrumentation",
-                        key="workflow_instrumentation",
-                        height=90,
-                    )
-                    st.text_input(
-                        "Energy Goal",
-                        key="workflow_energy_goal",
-                    )
-                    st.text_input(
-                        "Track Length",
-                        key="workflow_track_length",
-                    )
+            with st.expander("Workflow Context", expanded=selected_workflow != CollaborationWorkflow.RESEARCH_SESSION):
+                st.text_input(
+                    "Track Context Path",
+                    key="workflow_track_context_path",
+                    help="Vault-relative project folder or track_context.md path, for example Projects/Moonlit Driver or Projects/Moonlit Driver/track_context.md.",
+                )
+                st.text_input(
+                    "Genre / Style",
+                    key="workflow_genre",
+                    help="Examples: house, techno, melodic techno, trance, garage, breakbeat.",
+                )
+                st.text_input(
+                    "References",
+                    key="workflow_references",
+                    help="Artists, tracks, labels, or scenes.",
+                )
+                st.text_input("BPM / Tempo", key="workflow_bpm")
+                st.text_input("Mood / Energy", key="workflow_mood")
+                st.text_input("Energy Goal", key="workflow_energy_goal")
+                st.text_input("Track Length", key="workflow_track_length")
+                st.text_input(
+                    "Role of Key Elements",
+                    key="workflow_role_of_key_elements",
+                    help="What the kick, bass, lead, textures, or vocal should do in the track.",
+                )
+                st.text_area("Arrangement Notes", key="workflow_arrangement_notes", height=80)
+                st.text_area("Instrumentation", key="workflow_instrumentation", height=80)
+                st.text_area("Sound Palette", key="workflow_sound_palette", height=80)
+
             st.markdown("#### Retrieval Scope")
             st.radio(
                 "Local retrieval scope",
                 options=[RetrievalScope.KNOWLEDGE.value, RetrievalScope.EXTENDED.value],
-                horizontal=True,
                 format_func=lambda value: (
                     "Knowledge — curated notes + imported reference material"
                     if value == RetrievalScope.KNOWLEDGE.value
@@ -331,34 +297,71 @@ def _render_ask_tab(
                 ),
                 key="retrieval_scope",
             )
-            if st.session_state["retrieval_scope"] == RetrievalScope.KNOWLEDGE.value:
-                st.caption(
-                    "Searches your curated Knowledge folders plus indexed imported reference material such as webpages and YouTube transcripts."
-                )
-            else:
-                st.caption(
-                    "Searches everything in Knowledge, plus indexed working notes, Drafts, and Research Sessions."
-                )
-            submit_cols = st.columns([1, 1, 4])
-            ask_clicked = submit_cols[0].form_submit_button("Send", type="primary", use_container_width=True)
-            clear_clicked = submit_cols[1].form_submit_button("Reset Session", use_container_width=True)
-            submit_cols[2].caption("Reset Session clears the current chat, tasks, and workflow context for this session.")
-
-        with save_col:
-            st.markdown("### Save Options")
-            selected_workflow = CollaborationWorkflow.coerce(st.session_state["collaboration_workflow"])
-            st.caption(
-                f"This workflow saves by default to `{music_workflow_service.default_save_path(selected_workflow)}`."
-            )
             st.text_input(
                 "Optional note title",
                 key="save_title",
                 help="Override the saved note title and filename slug.",
             )
-            if st.session_state.get("last_query_response") and st.session_state["last_query_response"].has_saved:
-                st.success(f"Saved to {st.session_state['last_query_response'].saved_path}")
-            else:
-                st.caption("You can save the current answer after asking a question.")
+            st.form_submit_button("Update Workspace", use_container_width=True)
+
+        if st.session_state["retrieval_scope"] == RetrievalScope.KNOWLEDGE.value:
+            st.caption(
+                "Knowledge searches curated Knowledge folders plus indexed imported reference material such as webpages and YouTube transcripts."
+            )
+        else:
+            st.caption(
+                "Extended searches Knowledge, plus indexed working notes, Drafts, and Research Sessions."
+            )
+
+        if st.button("Reset Session", use_container_width=True):
+            clear_clicked = True
+        st.caption("Reset Session clears the current chat, tasks, and composer/workflow context for this session.")
+
+        if st.session_state.get("last_query_response") and st.session_state["last_query_response"].has_saved:
+            st.success(f"Saved to {st.session_state['last_query_response'].saved_path}")
+        else:
+            st.caption(
+                f"This workflow saves by default to `{music_workflow_service.default_save_path(selected_workflow)}`."
+            )
+
+        _render_task_panel()
+
+    chat_workspace_enabled = selected_workflow.value in _CHAT_TASK_WORKFLOWS
+
+    with main_col:
+        if chat_workspace_enabled:
+            st.markdown("### Session Chat")
+            st.caption("Read the latest turn above, then reply immediately below to keep the collaboration moving.")
+            with st.container(border=True):
+                _render_chat_history()
+                if not st.session_state.get("chat_messages"):
+                    st.caption("No messages yet. Start with a critique, arrangement, or sound-design question to open the session.")
+
+            with st.container(border=True):
+                st.markdown("#### Reply")
+                st.caption("Type your next follow-up here. The newest messages stay directly above the composer.")
+                with st.form("chat_composer", clear_on_submit=False, enter_to_submit=False):
+                    question = st.text_area(
+                        "Message",
+                        key="question",
+                        placeholder="Ask a follow-up, request implementation help, or refine the current idea.",
+                        height=110,
+                        label_visibility="collapsed",
+                    )
+                    ask_clicked = st.form_submit_button("Send", type="primary", use_container_width=True)
+        else:
+            st.markdown("### Composer")
+            st.caption("This workflow keeps a simpler ask/answer flow. Music chat continuity becomes active for critique, arrangement, and sound design workflows.")
+            with st.container(border=True):
+                with st.form("ask_composer", clear_on_submit=False, enter_to_submit=False):
+                    question = st.text_area(
+                        "Prompt",
+                        key="question",
+                        placeholder="Describe the track idea, style target, arrangement problem, sound design goal, or research question.",
+                        height=120,
+                        label_visibility="collapsed",
+                    )
+                    ask_clicked = st.form_submit_button("Send", type="primary", use_container_width=True)
 
     if clear_clicked:
         st.session_state["reset_ask_form"] = True
@@ -369,9 +372,11 @@ def _render_ask_tab(
             st.warning("Enter a question before asking.")
         else:
             try:
-                user_message = ChatMessage(role="user", content=question.strip(), created_at=current_timestamp())
                 chat_messages = list(st.session_state["chat_messages"])
-                chat_messages.append(user_message)
+                if chat_workspace_enabled:
+                    chat_messages.append(
+                        ChatMessage(role="user", content=question.strip(), created_at=current_timestamp())
+                    )
                 request = QueryRequest(
                     question=question.strip(),
                     filters=_current_filters(),
@@ -384,7 +389,7 @@ def _render_ask_tab(
                     collaboration_workflow=st.session_state["collaboration_workflow"],
                     workflow_input=_current_workflow_input(),
                     recent_conversation=_recent_conversation_for_prompt(
-                        chat_messages[:-1],
+                        chat_messages[:-1] if chat_workspace_enabled else [],
                         st.session_state["collaboration_workflow"],
                     ),
                     current_tasks=_tasks_for_prompt(
@@ -410,7 +415,7 @@ def _render_ask_tab(
                     )
                 else:
                     response = query_service.ask(request)
-                if not isinstance(response, ResearchResponse):
+                if chat_workspace_enabled and not isinstance(response, ResearchResponse):
                     chat_messages.append(
                         ChatMessage(
                             role="assistant",
