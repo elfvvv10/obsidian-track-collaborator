@@ -89,6 +89,13 @@ class AnswerMode(StrEnum):
         )
 
 
+class WorkflowMode(StrEnum):
+    """Supported top-level ask workflows."""
+
+    DIRECT = "direct"
+    RESEARCH = "research"
+
+
 @dataclass(slots=True)
 class QueryRequest:
     """Structured request for answering a question."""
@@ -194,6 +201,96 @@ class QueryResponse:
 
     def with_saved_path(self, saved_path: Path) -> "QueryResponse":
         """Return a copy with the saved path filled in while preserving evidence state."""
+        return replace(self, saved_path=saved_path)
+
+
+@dataclass(slots=True)
+class ResearchRequest:
+    """Structured request for a multi-step research workflow."""
+
+    goal: str
+    filters: RetrievalFilters = field(default_factory=RetrievalFilters)
+    options: RetrievalOptions = field(default_factory=RetrievalOptions)
+    retrieval_mode: RetrievalMode = RetrievalMode.LOCAL_ONLY
+    answer_mode: AnswerMode = AnswerMode.BALANCED
+    max_subquestions: int = 3
+    auto_save: bool = False
+    save_title: str | None = None
+
+    def __post_init__(self) -> None:
+        self.retrieval_mode = RetrievalMode.coerce(self.retrieval_mode)
+        self.answer_mode = AnswerMode.coerce(self.answer_mode)
+        self.max_subquestions = max(1, min(int(self.max_subquestions), 5))
+
+
+@dataclass(slots=True)
+class ResearchStepResult:
+    """A single explicit research step with its answer output."""
+
+    subquestion: str
+    response: QueryResponse
+    completed: bool = True
+
+
+@dataclass(slots=True)
+class ResearchResponse:
+    """Structured response for research workflow operations."""
+
+    goal: str
+    subquestions: list[str]
+    steps: list[ResearchStepResult]
+    answer_result: AnswerResult
+    warnings: list[str] = field(default_factory=list)
+    saved_path: Path | None = None
+    planning_notes: list[str] = field(default_factory=list)
+
+    @property
+    def answer(self) -> str:
+        return self.answer_result.answer
+
+    @property
+    def sources(self) -> list[str]:
+        return self.answer_result.sources
+
+    @property
+    def retrieved_chunks(self) -> list[RetrievedChunk]:
+        return self.answer_result.retrieved_chunks
+
+    @property
+    def web_results(self) -> list[WebSearchResult]:
+        web_results: list[WebSearchResult] = []
+        seen: set[tuple[str, str]] = set()
+        for step in self.steps:
+            for result in step.response.web_results:
+                key = (result.title, result.url)
+                if key in seen:
+                    continue
+                seen.add(key)
+                web_results.append(result)
+        return web_results
+
+    @property
+    def has_saved(self) -> bool:
+        return self.saved_path is not None
+
+    @property
+    def local_sources(self) -> list[str]:
+        return [source for source in self.answer_result.sources if source.startswith("[Local")]
+
+    @property
+    def saved_sources(self) -> list[str]:
+        return [source for source in self.answer_result.sources if source.startswith("[Saved")]
+
+    @property
+    def web_sources(self) -> list[str]:
+        return [source for source in self.answer_result.sources if source.startswith("[Web")]
+
+    @property
+    def inference_used(self) -> bool:
+        return "[Inference]" in self.answer_result.answer
+
+    def with_saved_path(self, saved_path: Path) -> "ResearchResponse":
+        """Return a copy with the saved path filled in."""
         return replace(self, saved_path=saved_path)
 
 

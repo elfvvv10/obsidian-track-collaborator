@@ -16,6 +16,7 @@ A local-first Python Obsidian RAG assistant that runs through a CLI or a lightwe
 - Supports an improved saved-note template and optional auto-save
 - Generates grounded answers with a local Ollama chat model
 - Supports answer modes for stricter or more exploratory answer behavior
+- Supports a visible research mode that decomposes a goal into explicit subquestions
 - Labels local sources, web sources, and inference more explicitly
 - Shows source note references in the terminal
 - Includes a lightweight local Streamlit UI for asking questions, indexing, and debugging
@@ -60,12 +61,17 @@ External content ingestion is handled as a separate workflow:
 
 The app now also includes a thin service layer so both the CLI and UI can share the same orchestration path without duplicating business logic.
 
+Research mode is handled as a separate orchestration path above normal direct Q&A:
+
+`Goal -> research service -> subquestion plan -> repeated query/answer steps -> final synthesis -> optional save-back`
+
 Core modules:
 
 - `main.py`: CLI entrypoint
 - `config.py`: environment loading and validation
 - `services/index_service.py`: shared indexing/build flow for CLI and UI
 - `services/query_service.py`: shared query + answer flow for CLI and UI
+- `services/research_service.py`: visible multi-step research workflow built on top of the normal query stack
 - `services/web_search_service.py`: optional external search orchestration
 - `services/web_alignment_service.py`: local-guided web query building and off-topic result filtering
 - `services/ingestion_service.py`: shared external content ingestion orchestration
@@ -258,6 +264,34 @@ The app will:
 4. Print the answer and sources in the terminal
 5. Ask whether you want to save the answer as a Markdown note
 
+## Research Mode
+
+Research mode keeps the current direct ask flow intact, but adds a more structured workflow for bigger questions:
+
+1. interpret the goal
+2. generate a small set of explicit subquestions
+3. answer each subquestion through the existing retrieval and answer stack
+4. synthesize a final research answer
+5. keep warnings, sources, and inference labels visible
+
+Run it from the CLI:
+
+```bash
+python main.py research "Compare my notes on AI agents with recent external context"
+python main.py research "What do my notes suggest about local LLM workflows?" --answer-mode strict --max-subquestions 2
+```
+
+Research mode differs from direct ask mode in two important ways:
+
+- it is multi-step and inspectable rather than a single retrieval-and-answer pass
+- it reuses the existing query stack for each subquestion instead of hiding everything inside one large model call
+
+It is still intentionally bounded:
+
+- only a small number of subquestions are generated
+- there is no uncontrolled autonomous looping
+- answer mode and retrieval mode still apply
+
 ### Retrieval Modes
 
 - `local_only`: use only your Obsidian vault. This is the default and preserves the original local-first behavior.
@@ -341,10 +375,11 @@ streamlit run streamlit_app.py
 The UI includes four main areas:
 
 - `Sidebar`: query filters and retrieval controls such as folder, path text, tag, top-k, reranking, linked-note expansion, auto-save, retrieval mode, and answer mode
-- `Ask`: question input, answer display, separate local/web sources, save actions, linked-note context, and an optional debug view of retrieval stages
+- `Ask`: question input, a visible workflow toggle for `Direct Ask` or `Research Mode`, answer display, separate local/web sources, save actions, linked-note context, and an optional debug view of retrieval stages
 - `Ask`: when web search is attempted, the UI can also show the actual web query used, whether a retry was attempted, and a brief explanation when no web sources were included
 - `Ask`: when saved answers are indexed and used, they appear in a separate `Saved Answer Sources` section
 - `Ask`: a visible toggle directly under the question box lets you decide per question whether indexed saved answers should be included
+- `Ask`: in research mode, the UI shows the generated subquestions, step-by-step findings, and the final synthesized answer
 - `Ingest`: paste a webpage URL or YouTube URL, save it into the vault, and optionally trigger indexing right away
 - `Index`: readiness messages plus build and rebuild actions
 - `Settings / Debug`: active models, paths, app readiness, index compatibility, and the debug toggle
@@ -418,6 +453,7 @@ If you enable `INDEX_SAVED_ANSWERS=true`, those saved notes are indexed as secon
 │   ├── index_service.py
 │   ├── models.py
 │   ├── query_service.py
+│   ├── research_service.py
 │   ├── web_search_service.py
 │   ├── webpage_ingestion_service.py
 │   └── youtube_ingestion_service.py
@@ -436,6 +472,7 @@ The `tests/` directory includes:
 - local module and smoke tests
 - orchestration-level integration tests using temporary vaults and real local indexing/retrieval flow
 - service-layer tests for UI-facing query and status responses
+- visible research-workflow tests for subquestion planning, step execution, and final synthesis
 - phase-focused tests for retrieval, metadata, links, save-back behavior, and optional web search
 
 ## Troubleshooting
@@ -571,9 +608,10 @@ This can happen after retrieval-relevant schema changes such as new metadata fie
 
 - Chunking is Markdown-aware but still heuristic rather than token-aware
 - Metadata filters are still intentionally simple: folder, path text, and tag-based controls only
-- Saved answers can be indexed as a secondary source, but there is not yet a dedicated UI toggle or retrieval filter just for saved-answer notes
+- Saved answers can be indexed as a secondary source and toggled per question in the UI, but they are still a lightweight derived-note feature rather than a full memo-management workflow
 - The Streamlit UI is intentionally lightweight and does not yet include persistent chat history or advanced source inspection workflows
 - The UI exposes retrieval/debug structure intended to support future features, but it is still intentionally simple
+- Research mode is intentionally bounded to a small number of explicit subquestions and does not yet support deeper branching, follow-up planning, or iterative revision
 - Web search is optional and external, so its availability and result quality depend on the configured provider
 - The default provider is Wikipedia search, which is more reliable than the previous DuckDuckGo-only approach but is still narrower than a full general web search engine
 - External web evidence is kept separate from local notes, but answer quality still depends on prompt quality and source quality
@@ -591,6 +629,7 @@ This can happen after retrieval-relevant schema changes such as new metadata fie
 - Configurable prompt templates
 - Metadata filtering by tags, frontmatter, or note type
 - Conversation history
+- Richer research workflows such as follow-up planning, evidence comparison, and revision passes
 - Richer UI features such as persistent sessions and better source inspection
 - Optional live integration checks for Ollama and Chroma
 - Better cleanup, sectioning, and summarization options for imported external content

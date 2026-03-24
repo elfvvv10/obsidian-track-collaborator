@@ -9,8 +9,19 @@ import streamlit as st
 from config import AppConfig, load_config
 from services.ingestion_service import IngestionService
 from services.index_service import IndexService
-from services.models import AnswerMode, IngestionRequest, IndexResponse, QueryRequest, QueryResponse, RetrievalMode
+from services.models import (
+    AnswerMode,
+    IngestionRequest,
+    IndexResponse,
+    QueryRequest,
+    QueryResponse,
+    ResearchRequest,
+    ResearchResponse,
+    RetrievalMode,
+    WorkflowMode,
+)
 from services.query_service import QueryService
+from services.research_service import ResearchService
 from utils import RetrievalFilters, RetrievalOptions
 
 
@@ -40,7 +51,7 @@ def main() -> None:
     )
 
     with ask_tab:
-        _render_ask_tab(ui_config, services["query_service"], status)
+        _render_ask_tab(ui_config, services["query_service"], services["research_service"], status)
 
     with ingest_tab:
         _render_ingest_tab(services["ingestion_service"])
@@ -56,6 +67,7 @@ def _get_services(config: AppConfig) -> dict[str, object]:
     """Construct shared services for the current UI config."""
     return {
         "query_service": QueryService(config),
+        "research_service": ResearchService(config),
         "index_service": IndexService(config),
         "ingestion_service": IngestionService(config),
     }
@@ -155,6 +167,7 @@ def _render_sidebar(config: AppConfig, status: IndexResponse | None, status_erro
 def _render_ask_tab(
     config: AppConfig,
     query_service: QueryService,
+    research_service: ResearchService,
     status: IndexResponse | None,
 ) -> None:
     if status is not None:
@@ -173,6 +186,26 @@ def _render_ask_tab(
         )
         st.session_state["question"] = question
         with st.container(border=True):
+            st.markdown("#### Workflow")
+            st.session_state["workflow_mode"] = st.radio(
+                "Question workflow",
+                options=[WorkflowMode.DIRECT.value, WorkflowMode.RESEARCH.value],
+                index=[WorkflowMode.DIRECT.value, WorkflowMode.RESEARCH.value].index(
+                    st.session_state["workflow_mode"]
+                ),
+                horizontal=True,
+                format_func=lambda value: "Direct Ask" if value == WorkflowMode.DIRECT.value else "Research Mode",
+            )
+            if st.session_state["workflow_mode"] == WorkflowMode.RESEARCH.value:
+                st.session_state["max_subquestions"] = int(
+                    st.number_input(
+                        "Max research subquestions",
+                        min_value=1,
+                        max_value=5,
+                        value=int(st.session_state["max_subquestions"]),
+                        help="Research mode decomposes your request into a small visible set of subquestions.",
+                    )
+                )
             st.markdown("#### Retrieval Scope")
             st.session_state["use_saved_answers"] = st.toggle(
                 "Use saved answers for this question",
@@ -214,7 +247,21 @@ def _render_ask_tab(
                     retrieval_mode=st.session_state["retrieval_mode"],
                     answer_mode=st.session_state["answer_mode"],
                 )
-                response = query_service.ask(request)
+                if st.session_state["workflow_mode"] == WorkflowMode.RESEARCH.value:
+                    response = research_service.research(
+                        ResearchRequest(
+                            goal=question.strip(),
+                            filters=request.filters,
+                            options=request.options,
+                            auto_save=request.auto_save,
+                            save_title=request.save_title,
+                            retrieval_mode=request.retrieval_mode,
+                            answer_mode=request.answer_mode,
+                            max_subquestions=st.session_state["max_subquestions"],
+                        )
+                    )
+                else:
+                    response = query_service.ask(request)
                 st.session_state["last_query_response"] = response
                 st.session_state["last_question"] = question.strip()
             except Exception as exc:
@@ -223,6 +270,10 @@ def _render_ask_tab(
 
     response = st.session_state.get("last_query_response")
     if response is None:
+        return
+
+    if isinstance(response, ResearchResponse):
+        _render_research_response(question, response, research_service)
         return
 
     for warning in response.warnings:
@@ -321,6 +372,84 @@ def _render_ask_tab(
 
     if st.session_state["debug_mode"]:
         _render_debug_section(response)
+
+
+def _render_research_response(
+    question: str,
+    response: ResearchResponse,
+    research_service: ResearchService,
+) -> None:
+    for warning in response.warnings:
+        st.warning(warning)
+
+    with st.expander("Answer Mode and Evidence Guide", expanded=False):
+        st.write("Research mode plans a small list of explicit subquestions, answers each one, then synthesizes a final response.")
+        st.write("Strict — Retrieved evidence only; says when evidence is missing.")
+        st.write("Balanced — Evidence first, limited model reasoning.")
+        st.write("Exploratory — Evidence plus broader synthesis and labeled inference.")
+        st.write("Local = your Obsidian notes.")
+        st.write("Saved = previously saved answer notes, treated as secondary sources.")
+        st.write("Web = external search results.")
+        st.write("Inference = model synthesis beyond directly retrieved evidence.")
+
+    status_cols = st.columns(5)
+    status_cols[0].metric("Workflow", "Research")
+    status_cols[1].metric("Subquestions", str(len(response.subquestions)))
+    status_cols[2].metric("Local notes used", "Yes" if response.local_sources else "No")
+    status_cols[3].metric("Web used", "Yes" if response.web_sources else "No")
+    status_cols[4].metric("Inference used", "Yes" if response.inference_used else "No")
+
+    st.subheader("Research Plan")
+    for index, subquestion in enumerate(response.subquestions, start=1):
+        st.write(f"{index}. {subquestion}")
+
+    st.subheader("Step Findings")
+    for index, step in enumerate(response.steps, start=1):
+        with st.expander(f"Step {index}: {step.subquestion}", expanded=False):
+            st.write(step.response.answer)
+            if step.response.sources:
+                st.markdown("**Sources**")
+                for source in step.response.sources:
+                    st.write(f"- {source}")
+            if step.response.warnings:
+                st.markdown("**Warnings**")
+                for warning in step.response.warnings:
+                    st.write(f"- {warning}")
+
+    summary_col, sources_col = st.columns([3, 2])
+    with summary_col:
+        st.subheader("Final Research Answer")
+        st.write(response.answer)
+    with sources_col:
+        st.subheader("Sources")
+        if response.local_sources:
+            for source in response.local_sources:
+                st.write(f"- {source}")
+        else:
+            st.write("- No local note sources")
+        if response.saved_sources:
+            st.markdown("**Saved Answer Sources**")
+            for source in response.saved_sources:
+                st.write(f"- {source}")
+        if response.web_sources:
+            st.markdown("**Web Sources**")
+            for source in response.web_sources:
+                st.write(f"- {source}")
+
+    save_disabled = response.has_saved or not response.sources
+    save_help = "This research answer has already been saved." if response.has_saved else None
+    if st.button("Save Research To Vault", disabled=save_disabled, help=save_help):
+        try:
+            saved_response = research_service.save(
+                st.session_state.get("last_question", question.strip()),
+                response.answer_result,
+                title_override=st.session_state["save_title"].strip() or None,
+                existing_response=response,
+            )
+            st.session_state["last_query_response"] = saved_response
+            st.success(f"Saved research answer to {saved_response.saved_path}")
+        except Exception as exc:
+            st.error(str(exc))
 
 
 def _render_ingest_tab(ingestion_service: IngestionService) -> None:
@@ -614,6 +743,7 @@ def _render_settings_tab(config: AppConfig, status: IndexResponse | None, status
     )
     st.write(f"Current retrieval mode: `{st.session_state['retrieval_mode']}`")
     st.write(f"Current answer mode: `{st.session_state['answer_mode']}`")
+    st.write(f"Current workflow mode: `{st.session_state['workflow_mode']}`")
 
 
 def _current_filters() -> RetrievalFilters:
@@ -647,6 +777,8 @@ def _init_session_state(config: AppConfig) -> None:
         "auto_save": config.auto_save_answer,
         "retrieval_mode": RetrievalMode.LOCAL_ONLY.value,
         "answer_mode": AnswerMode.BALANCED.value,
+        "workflow_mode": WorkflowMode.DIRECT.value,
+        "max_subquestions": 3,
         "debug_mode": False,
         "last_query_response": None,
         "last_question": "",

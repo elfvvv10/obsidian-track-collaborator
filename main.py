@@ -14,8 +14,9 @@ from saver import prompt_to_save, save_answer
 from services.common import build_note_alias_map, ensure_index_compatible, resolve_note_links
 from services.ingestion_service import IngestionService
 from services.index_service import IndexService
-from services.models import AnswerMode, IngestionRequest, QueryRequest, RetrievalMode
+from services.models import AnswerMode, IngestionRequest, QueryRequest, ResearchRequest, RetrievalMode
 from services.query_service import QueryService
+from services.research_service import ResearchService
 from services.web_search_service import WebSearchService
 from utils import Note
 from utils import RetrievalFilters, RetrievalOptions, get_logger
@@ -54,6 +55,24 @@ def main() -> int:
                 auto_save=args.auto_save,
                 retrieval_mode=args.retrieval_mode,
                 answer_mode=args.answer_mode,
+            )
+        elif args.command == "research":
+            run_research(
+                config,
+                args.question,
+                folder=args.folder,
+                path_contains=args.path_contains,
+                tag=args.tag,
+                boost_tags=args.boost_tag,
+                include_linked=args.include_linked,
+                include_saved_answers=args.include_saved_answers,
+                top_k=args.top_k,
+                candidate_count=args.candidate_count,
+                rerank=args.rerank,
+                auto_save=args.auto_save,
+                retrieval_mode=args.retrieval_mode,
+                answer_mode=args.answer_mode,
+                max_subquestions=args.max_subquestions,
             )
         elif args.command == "ingest-webpage":
             run_ingest_webpage(
@@ -94,61 +113,16 @@ def build_parser() -> argparse.ArgumentParser:
     _add_index_overrides(rebuild_parser)
 
     ask_parser = subparsers.add_parser("ask", help="Ask a question against the indexed notes")
+    research_parser = subparsers.add_parser("research", help="Run a visible multi-step research workflow")
     ask_parser.add_argument("question", help="Question to ask about the indexed vault")
-    ask_parser.add_argument(
-        "--folder",
-        help="Only retrieve notes from this vault-relative folder",
-    )
-    ask_parser.add_argument(
-        "--path-contains",
-        help="Only retrieve notes whose path contains this text",
-    )
-    ask_parser.add_argument(
-        "--tag",
-        help="Only retrieve notes that contain this tag",
-    )
-    ask_parser.add_argument(
-        "--boost-tag",
-        action="append",
-        default=[],
-        help="Boost notes matching this tag during retrieval. Can be passed multiple times.",
-    )
-    ask_parser.add_argument(
-        "--include-linked",
-        action="store_true",
-        help="Include context from notes linked by the primary retrieved notes.",
-    )
-    ask_parser.add_argument(
-        "--top-k",
+    research_parser.add_argument("question", help="Research goal to decompose and investigate")
+    _add_query_arguments(ask_parser)
+    _add_query_arguments(research_parser)
+    research_parser.add_argument(
+        "--max-subquestions",
         type=int,
-        help="Override the number of final chunks used to answer the question",
-    )
-    ask_parser.add_argument(
-        "--candidate-count",
-        type=int,
-        help="Override the number of chunks retrieved before reranking",
-    )
-    ask_parser.add_argument(
-        "--rerank",
-        action="store_true",
-        help="Enable simple heuristic reranking for this query",
-    )
-    ask_parser.add_argument(
-        "--auto-save",
-        action="store_true",
-        help="Save the generated answer without prompting.",
-    )
-    ask_parser.add_argument(
-        "--retrieval-mode",
-        choices=[mode.value for mode in RetrievalMode],
-        default=RetrievalMode.LOCAL_ONLY.value,
-        help="Choose whether to use only local notes, automatic web fallback, or hybrid local+web retrieval.",
-    )
-    ask_parser.add_argument(
-        "--answer-mode",
-        choices=[mode.value for mode in AnswerMode],
-        default=AnswerMode.BALANCED.value,
-        help="Choose strict evidence-bound answers, balanced evidence-first answers, or exploratory synthesis.",
+        default=3,
+        help="Maximum number of explicit research subquestions to generate.",
     )
     ingest_parser.add_argument("url", help="Webpage URL to ingest into the vault")
     ingest_parser.add_argument("--title", help="Optional title override for the saved note")
@@ -181,6 +155,7 @@ def run_ask(
     tag: str | None = None,
     boost_tags: list[str] | None = None,
     include_linked: bool = False,
+    include_saved_answers: bool = False,
     top_k: int | None = None,
     candidate_count: int | None = None,
     rerank: bool = False,
@@ -211,6 +186,7 @@ def run_ask(
             if tag_value.strip()
         ),
         include_linked_notes=True if include_linked else None,
+        include_saved_answers=True if include_saved_answers else False,
     )
     query_service = QueryService(
         config,
@@ -254,6 +230,95 @@ def run_ask(
     elif prompt_to_save():
         saved_response = query_service.save(question, response.answer_result)
         logger.info("Saved answer to %s", saved_response.saved_path)
+
+
+def run_research(
+    config: AppConfig,
+    question: str,
+    *,
+    folder: str | None = None,
+    path_contains: str | None = None,
+    tag: str | None = None,
+    boost_tags: list[str] | None = None,
+    include_linked: bool = False,
+    include_saved_answers: bool = False,
+    top_k: int | None = None,
+    candidate_count: int | None = None,
+    rerank: bool = False,
+    auto_save: bool = False,
+    retrieval_mode: str = "local_only",
+    answer_mode: str = "balanced",
+    max_subquestions: int = 3,
+) -> None:
+    """Run a visible multi-step research workflow."""
+    if max_subquestions < 1:
+        raise ValueError("--max-subquestions must be at least 1.")
+    filters = RetrievalFilters(
+        folder=folder.strip().strip("/") if folder else None,
+        path_contains=path_contains.strip().lower() if path_contains else None,
+        tag=tag.strip().lstrip("#").lower() if tag else None,
+    )
+    options = RetrievalOptions(
+        top_k=top_k,
+        candidate_count=candidate_count,
+        rerank=True if rerank else None,
+        boost_tags=tuple(
+            tag_value.strip().lstrip("#").lower()
+            for tag_value in (boost_tags or [])
+            if tag_value.strip()
+        ),
+        include_linked_notes=True if include_linked else None,
+        include_saved_answers=True if include_saved_answers else False,
+    )
+    response = ResearchService(config).research(
+        ResearchRequest(
+            goal=question,
+            filters=filters,
+            options=options,
+            retrieval_mode=retrieval_mode,
+            answer_mode=answer_mode,
+            max_subquestions=max_subquestions,
+            auto_save=False,
+        )
+    )
+
+    print("\nResearch Plan\n-------------")
+    for index, subquestion in enumerate(response.subquestions, start=1):
+        print(f"{index}. {subquestion}")
+
+    print("\nFindings\n--------")
+    for index, step in enumerate(response.steps, start=1):
+        print(f"[Step {index}] {step.subquestion}")
+        print(step.response.answer)
+        if step.response.sources:
+            print("Sources:")
+            for source in step.response.sources:
+                print(f"- {source}")
+        if step.response.warnings:
+            for warning in step.response.warnings:
+                print(f"Warning: {warning}")
+        print("")
+
+    print("Final Research Answer\n---------------------")
+    print(response.answer)
+
+    print("\nSources")
+    print("-------")
+    if response.sources:
+        for source in response.sources:
+            print(f"- {source}")
+    else:
+        print("- No sources retrieved")
+
+    for warning in response.warnings:
+        print(f"\nWarning: {warning}")
+
+    if auto_save or config.auto_save_answer:
+        saved_response = ResearchService(config).save(question, response.answer_result, existing_response=response)
+        logger.info("Saved research answer to %s", saved_response.saved_path)
+    elif prompt_to_save():
+        saved_response = ResearchService(config).save(question, response.answer_result, existing_response=response)
+        logger.info("Saved research answer to %s", saved_response.saved_path)
 
 
 def run_ingest_webpage(
@@ -321,6 +386,69 @@ def _add_index_overrides(parser: argparse.ArgumentParser) -> None:
         "--chunking-strategy",
         choices=["markdown", "sentence"],
         help="Override the chunking strategy for this indexing run",
+    )
+
+
+def _add_query_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--folder",
+        help="Only retrieve notes from this vault-relative folder",
+    )
+    parser.add_argument(
+        "--path-contains",
+        help="Only retrieve notes whose path contains this text",
+    )
+    parser.add_argument(
+        "--tag",
+        help="Only retrieve notes that contain this tag",
+    )
+    parser.add_argument(
+        "--boost-tag",
+        action="append",
+        default=[],
+        help="Boost notes matching this tag during retrieval. Can be passed multiple times.",
+    )
+    parser.add_argument(
+        "--include-linked",
+        action="store_true",
+        help="Include context from notes linked by the primary retrieved notes.",
+    )
+    parser.add_argument(
+        "--include-saved-answers",
+        action="store_true",
+        help="Include indexed saved answers as secondary retrieval sources for this run.",
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        help="Override the number of final chunks used to answer the question",
+    )
+    parser.add_argument(
+        "--candidate-count",
+        type=int,
+        help="Override the number of chunks retrieved before reranking",
+    )
+    parser.add_argument(
+        "--rerank",
+        action="store_true",
+        help="Enable simple heuristic reranking for this query",
+    )
+    parser.add_argument(
+        "--auto-save",
+        action="store_true",
+        help="Save the generated answer without prompting.",
+    )
+    parser.add_argument(
+        "--retrieval-mode",
+        choices=[mode.value for mode in RetrievalMode],
+        default=RetrievalMode.LOCAL_ONLY.value,
+        help="Choose whether to use only local notes, automatic web fallback, or hybrid local+web retrieval.",
+    )
+    parser.add_argument(
+        "--answer-mode",
+        choices=[mode.value for mode in AnswerMode],
+        default=AnswerMode.BALANCED.value,
+        help="Choose strict evidence-bound answers, balanced evidence-first answers, or exploratory synthesis.",
     )
 
 

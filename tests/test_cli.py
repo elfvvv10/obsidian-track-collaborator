@@ -11,8 +11,8 @@ from unittest.mock import patch
 
 import main
 from config import AppConfig
-from services.models import IngestionResponse
-from utils import RetrievedChunk
+from services.models import IngestionResponse, ResearchResponse
+from utils import AnswerResult, RetrievedChunk
 
 
 def make_config(root: Path) -> AppConfig:
@@ -226,3 +226,42 @@ class CLITests(unittest.TestCase):
             output = buffer.getvalue()
             self.assertIn("Ingestion Complete", output)
             self.assertIn("Example Video", output)
+
+    def test_main_research_command_dispatches_to_research_flow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            config = make_config(root)
+            response = ResearchResponse(
+                goal="Compare my notes with recent context",
+                subquestions=["What do my notes say?", "What external context is relevant?"],
+                steps=[],
+                answer_result=AnswerResult(
+                    answer="Final research answer",
+                    sources=["[Local 1] Agents (agents.md)"],
+                    retrieved_chunks=[],
+                ),
+            )
+
+            with patch("main.load_config", return_value=config), patch(
+                "main.ResearchService.research",
+                return_value=response,
+            ) as research_mock, patch(
+                "main.prompt_to_save",
+                return_value=False,
+            ), patch(
+                "sys.argv",
+                ["main.py", "research", "Compare my notes with recent context", "--max-subquestions", "2"],
+            ):
+                buffer = io.StringIO()
+                with redirect_stdout(buffer):
+                    exit_code = main.main()
+
+            self.assertEqual(exit_code, 0)
+            request = research_mock.call_args.args[0]
+            self.assertEqual(request.goal, "Compare my notes with recent context")
+            self.assertEqual(request.max_subquestions, 2)
+            output = buffer.getvalue()
+            self.assertIn("Research Plan", output)
+            self.assertIn("Final research answer", output)

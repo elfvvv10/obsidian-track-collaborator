@@ -1,0 +1,284 @@
+"""Explicit multi-step research workflow built on top of the existing query service."""
+
+from __future__ import annotations
+
+import re
+
+from config import AppConfig
+from llm import OllamaChatClient
+from saver import save_answer
+from services.models import (
+    AnswerMode,
+    QueryRequest,
+    QueryResponse,
+    ResearchRequest,
+    ResearchResponse,
+    ResearchStepResult,
+)
+from services.prompt_service import PromptService, build_citation_sources, enforce_citation_summary
+from services.query_service import QueryService
+from utils import AnswerResult, RetrievedChunk, get_logger
+from web_search import WebSearchResult
+
+
+logger = get_logger()
+
+
+class ResearchService:
+    """Coordinate a visible, bounded research workflow without hidden autonomy."""
+
+    def __init__(
+        self,
+        config: AppConfig,
+        *,
+        query_service_cls: type[QueryService] = QueryService,
+        chat_client_cls: type[OllamaChatClient] = OllamaChatClient,
+        prompt_service_cls: type[PromptService] = PromptService,
+    ) -> None:
+        self.config = config
+        self.query_service_cls = query_service_cls
+        self.chat_client_cls = chat_client_cls
+        self.prompt_service_cls = prompt_service_cls
+
+    def research(self, request: ResearchRequest) -> ResearchResponse:
+        """Run a bounded multi-step research workflow and return structured results."""
+        query_service = self.query_service_cls(self.config)
+        prompt_service = self.prompt_service_cls()
+        chat_client = self.chat_client_cls(self.config)
+
+        subquestions, planning_notes = self._generate_subquestions(
+            request.goal,
+            answer_mode=request.answer_mode,
+            max_subquestions=request.max_subquestions,
+            chat_client=chat_client,
+            prompt_service=prompt_service,
+        )
+
+        steps: list[ResearchStepResult] = []
+        for subquestion in subquestions:
+            step_response = query_service.ask(
+                QueryRequest(
+                    question=subquestion,
+                    filters=request.filters,
+                    options=request.options,
+                    retrieval_mode=request.retrieval_mode,
+                    answer_mode=request.answer_mode,
+                )
+            )
+            steps.append(ResearchStepResult(subquestion=subquestion, response=step_response))
+
+        final_answer_result, final_warnings = self._synthesize_research_answer(
+            request.goal,
+            steps,
+            answer_mode=request.answer_mode,
+            retrieval_mode=request.retrieval_mode,
+            chat_client=chat_client,
+            prompt_service=prompt_service,
+        )
+
+        warnings = list(dict.fromkeys(planning_notes + final_warnings + _collect_step_warnings(steps)))
+        saved_path = None
+        if request.auto_save or self.config.auto_save_answer:
+            saved_path = save_answer(
+                self.config.obsidian_output_path,
+                request.goal,
+                final_answer_result,
+                title_override=request.save_title,
+            )
+            logger.info("Saved research answer to %s", saved_path)
+
+        return ResearchResponse(
+            goal=request.goal,
+            subquestions=subquestions,
+            steps=steps,
+            answer_result=final_answer_result,
+            warnings=warnings,
+            saved_path=saved_path,
+            planning_notes=planning_notes,
+        )
+
+    def save(
+        self,
+        goal: str,
+        answer_result: AnswerResult,
+        *,
+        title_override: str | None = None,
+        existing_response: ResearchResponse | None = None,
+    ) -> ResearchResponse:
+        """Persist an existing research answer result and preserve prior workflow state."""
+        saved_path = save_answer(
+            self.config.obsidian_output_path,
+            goal,
+            answer_result,
+            title_override=title_override,
+        )
+        logger.info("Saved research answer to %s", saved_path)
+        if existing_response is not None:
+            return existing_response.with_saved_path(saved_path)
+        return ResearchResponse(
+            goal=goal,
+            subquestions=[],
+            steps=[],
+            answer_result=answer_result,
+            saved_path=saved_path,
+        )
+
+    def _generate_subquestions(
+        self,
+        goal: str,
+        *,
+        answer_mode: AnswerMode,
+        max_subquestions: int,
+        chat_client: OllamaChatClient,
+        prompt_service: PromptService,
+    ) -> tuple[list[str], list[str]]:
+        planning_notes: list[str] = []
+        payload = prompt_service.build_research_plan_payload(
+            goal,
+            answer_mode=answer_mode,
+            max_subquestions=max_subquestions,
+        )
+        try:
+            raw_plan = chat_client.answer_with_prompt(payload)
+            subquestions = _parse_subquestions(raw_plan, max_subquestions=max_subquestions)
+        except Exception as exc:
+            planning_notes.append(f"Research planning fallback was used: {exc}")
+            subquestions = []
+
+        if not subquestions:
+            planning_notes.append("Research subquestions were generated with a deterministic fallback.")
+            subquestions = _fallback_subquestions(goal, max_subquestions=max_subquestions)
+
+        return subquestions[:max_subquestions], planning_notes
+
+    def _synthesize_research_answer(
+        self,
+        goal: str,
+        steps: list[ResearchStepResult],
+        *,
+        answer_mode: AnswerMode,
+        retrieval_mode,
+        chat_client: OllamaChatClient,
+        prompt_service: PromptService,
+    ) -> tuple[AnswerResult, list[str]]:
+        combined_chunks = _dedupe_chunks([chunk for step in steps for chunk in step.response.retrieved_chunks])
+        combined_web = _dedupe_web_results([result for step in steps for result in step.response.web_results])
+        citation_sources, citation_labels = build_citation_sources(combined_chunks, combined_web)
+
+        if not citation_sources:
+            answer = (
+                "Insufficient evidence was gathered across the research steps to produce a grounded research answer."
+            )
+            return (
+                AnswerResult(
+                    answer=answer,
+                    sources=[],
+                    retrieved_chunks=combined_chunks,
+                ),
+                ["Research mode could not gather enough evidence across the planned subquestions."],
+            )
+
+        if answer_mode == AnswerMode.STRICT and all(_response_is_weak(step.response) for step in steps):
+            answer = (
+                "Insufficient evidence was gathered across the research steps to answer this in Strict mode."
+            )
+            answer = enforce_citation_summary(answer, tuple(citation_labels), answer_mode)
+            return (
+                AnswerResult(
+                    answer=answer,
+                    sources=citation_sources,
+                    retrieved_chunks=combined_chunks,
+                ),
+                ["Strict research mode limited the final synthesis because the step evidence remained weak."],
+            )
+
+        step_findings = [
+            (step.subquestion, step.response.answer, step.response.sources, step.response.warnings)
+            for step in steps
+        ]
+        payload = prompt_service.build_research_synthesis_payload(
+            goal,
+            step_findings,
+            answer_mode=answer_mode,
+            retrieval_mode=retrieval_mode,
+            citation_sources=citation_sources,
+        )
+        answer = chat_client.answer_with_prompt(payload)
+        answer = enforce_citation_summary(answer, tuple(citation_labels), answer_mode)
+        return (
+            AnswerResult(
+                answer=answer,
+                sources=citation_sources,
+                retrieved_chunks=combined_chunks,
+            ),
+            [],
+        )
+
+
+def _parse_subquestions(raw_plan: str, *, max_subquestions: int) -> list[str]:
+    lines = [
+        re.sub(r"^\s*(?:[-*]|\d+[.)])\s*", "", line).strip()
+        for line in raw_plan.splitlines()
+    ]
+    candidates = [line for line in lines if line]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        normalized = candidate.lower()
+        if normalized in seen or len(candidate) < 8:
+            continue
+        seen.add(normalized)
+        deduped.append(candidate.rstrip("?") + "?")
+        if len(deduped) >= max_subquestions:
+            break
+    return deduped
+
+
+def _fallback_subquestions(goal: str, *, max_subquestions: int) -> list[str]:
+    templates = [
+        f"What do my notes most directly say about: {goal}?",
+        f"What evidence in my notes supports or qualifies: {goal}?",
+        f"What external context is most relevant to: {goal}?",
+    ]
+    return templates[:max_subquestions]
+
+
+def _dedupe_chunks(chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
+    deduped: list[RetrievedChunk] = []
+    seen: set[tuple[object, object, object]] = set()
+    for chunk in chunks:
+        key = (
+            chunk.metadata.get("source_path"),
+            chunk.metadata.get("chunk_index"),
+            chunk.metadata.get("note_title"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(chunk)
+    return deduped
+
+
+def _dedupe_web_results(results: list[WebSearchResult]) -> list[WebSearchResult]:
+    deduped: list[WebSearchResult] = []
+    seen: set[tuple[str, str]] = set()
+    for result in results:
+        key = (result.title, result.url)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(result)
+    return deduped
+
+
+def _collect_step_warnings(steps: list[ResearchStepResult]) -> list[str]:
+    warnings: list[str] = []
+    for step in steps:
+        for warning in step.response.warnings:
+            if warning not in warnings:
+                warnings.append(warning)
+    return warnings
+
+
+def _response_is_weak(response: QueryResponse) -> bool:
+    return response.debug.local_retrieval_weak or not response.sources

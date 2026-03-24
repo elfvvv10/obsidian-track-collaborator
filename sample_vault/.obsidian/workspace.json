@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "research_answers/2026-03-24-compare-my-notes-with-recent-external-co-answer-2.md",
+                "file": "research_answers/2026-03-24-what-recent-external-context-is-relevant-answer.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "2026-03-24-compare-my-notes-with-recent-external-co-answer-2"
+              "title": "2026-03-24-what-recent-external-context-is-relevant-answer"
             }
           }
         ]
@@ -182,6 +182,7 @@
   },
   "active": "75c6dea7636d6feb",
   "lastOpenFiles": [
+    "research_answers/2026-03-24-compare-my-notes-with-recent-external-co-answer-2.md",
     "research_answers/2026-03-24-compare-my-notes-on-local-llms-with-rece-answer-2.md",
     "research_answers/2026-03-24-compare-my-notes-with-recent-external-co-answer-4.md",
     "research_answers/2026-03-24-what-recent-external-context-is-relevant-answer.md",
@@ -190,7 +191,6 @@
     "research_answers/2026-03-24-compare-my-notes-with-recent-external-co-answer-3.md",
     "research_answers/2026-03-24-compare-my-notes-with-recent-external-co-answer.md",
     "ai_agents.md",
-    "research_answers/2026-03-24-compare-my-notes-with-recent-external-co-answer-2.md",
     "personal_knowledge_management.md",
     "local_llms.md",
     "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-16.md",

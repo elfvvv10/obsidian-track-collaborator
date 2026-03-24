@@ -57,6 +57,72 @@ class PromptService:
             evidence_types_used=evidence_types_used,
         )
 
+    def build_research_plan_payload(
+        self,
+        goal: str,
+        *,
+        answer_mode: AnswerMode,
+        max_subquestions: int,
+    ) -> PromptPayload:
+        """Build a lightweight planning prompt for subquestion generation."""
+        return PromptPayload(
+            system_prompt=(
+                "You are planning an explicit research workflow for an Obsidian-based research assistant. "
+                "Break the user's goal into focused, evidence-seeking subquestions. "
+                "Be concrete, avoid overlap, and do not answer the question yet."
+            ),
+            user_prompt=(
+                f"Goal: {goal}\n"
+                f"Answer mode: {answer_mode.value}\n"
+                f"Generate {max_subquestions} or fewer focused subquestions.\n"
+                "Return one subquestion per line with no numbering or extra commentary."
+            ),
+            answer_mode=answer_mode,
+            citation_labels=(),
+            evidence_types_used=(),
+        )
+
+    def build_research_synthesis_payload(
+        self,
+        goal: str,
+        step_findings: list[tuple[str, str, list[str], list[str]]],
+        *,
+        answer_mode: AnswerMode,
+        retrieval_mode: RetrievalMode,
+        citation_sources: list[str],
+    ) -> PromptPayload:
+        """Build a final synthesis prompt from explicit research steps."""
+        finding_blocks: list[str] = []
+        for index, (subquestion, answer, sources, warnings) in enumerate(step_findings, start=1):
+            finding_blocks.append(
+                f"[Step {index}]\n"
+                f"Subquestion: {subquestion}\n"
+                f"Finding:\n{answer}\n"
+                f"Sources:\n{chr(10).join(sources) if sources else 'No sources'}\n"
+                f"Warnings:\n{chr(10).join(warnings) if warnings else 'None'}"
+            )
+
+        citation_block = "\n".join(citation_sources) if citation_sources else "No evidence sources were retrieved."
+        return PromptPayload(
+            system_prompt=_build_system_prompt(answer_mode),
+            user_prompt=(
+                f"Research goal: {goal}\n"
+                f"Answer mode: {answer_mode.value}\n"
+                f"Retrieval mode: {retrieval_mode.value}\n\n"
+                "You are synthesizing the final answer from explicit research steps. "
+                "Keep local notes, saved answers, and web evidence distinct.\n\n"
+                "Available source labels:\n"
+                f"{citation_block}\n\n"
+                "Research findings:\n"
+                f"{chr(10).join(finding_blocks)}\n\n"
+                f"{_mode_instructions(answer_mode)}\n"
+                "Write a final synthesized answer that cites supported claims and labels broader synthesis with [Inference] when needed."
+            ),
+            answer_mode=answer_mode,
+            citation_labels=tuple(_extract_citation_label(source) for source in citation_sources),
+            evidence_types_used=(),
+        )
+
 
 def build_citation_sources(
     chunks: list[RetrievedChunk],
@@ -123,6 +189,13 @@ def enforce_citation_summary(answer: str, citation_labels: tuple[str, ...], answ
 def answer_uses_inference(answer: str) -> bool:
     """Detect whether the model explicitly labeled inference in its answer."""
     return "[Inference]" in answer
+
+
+def _extract_citation_label(source: str) -> str:
+    """Extract a stable leading citation label from a formatted source string."""
+    if source.startswith("[") and "]" in source:
+        return source.split("]", 1)[0] + "]"
+    return source
 
 
 def _build_system_prompt(answer_mode: AnswerMode) -> str:
