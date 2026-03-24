@@ -8,9 +8,11 @@ from config import AppConfig
 from services.framework_service import FrameworkService
 from services.models import (
     AnswerMode,
+    ChatMessage,
     CollaborationWorkflow,
     DomainProfile,
     RetrievalMode,
+    SessionTask,
     WorkflowInput,
 )
 from services.track_context_service import TrackContextService
@@ -60,6 +62,8 @@ class PromptService:
         domain_profile: DomainProfile = DomainProfile.ELECTRONIC_MUSIC,
         collaboration_workflow: CollaborationWorkflow = CollaborationWorkflow.GENERAL_ASK,
         workflow_input: WorkflowInput | None = None,
+        recent_conversation: list[ChatMessage] | None = None,
+        current_tasks: list[SessionTask] | None = None,
         web_query_used: str = "",
         web_query_strategy: str = "raw_question",
         web_alignment_note: str = "",
@@ -67,6 +71,8 @@ class PromptService:
         citation_sources, citation_labels = build_citation_sources(chunks, web_results)
         evidence_types_used = _build_evidence_types(chunks, web_results)
         workflow_input = workflow_input or WorkflowInput()
+        recent_conversation = recent_conversation or []
+        current_tasks = current_tasks or []
         framework_text = self.framework_service.get_framework_text(collaboration_workflow, domain_profile)
         track_context = self.track_context_service.get_track_context(
             collaboration_workflow,
@@ -78,13 +84,17 @@ class PromptService:
             collaboration_workflow=collaboration_workflow,
             framework_text=framework_text,
             track_context_text=track_context.prompt_block,
+            recent_conversation=recent_conversation,
+            current_tasks=current_tasks,
         )
         if self.config.framework_debug:
             logger.info(
-                "Prompt internals: workflow=%s framework_injected=%s track_context_injected=%s.",
+                "Prompt internals: workflow=%s framework_injected=%s track_context_injected=%s tasks_injected=%s conversation_injected=%s.",
                 collaboration_workflow.value,
                 _FRAMEWORK_BLOCK_START in system_prompt,
                 _TRACK_CONTEXT_BLOCK_START in system_prompt,
+                _CURRENT_TASKS_BLOCK_START in system_prompt,
+                _RECENT_CONVERSATION_BLOCK_START in system_prompt,
             )
         return PromptPayload(
             system_prompt=system_prompt,
@@ -284,6 +294,8 @@ def _build_system_prompt(
     collaboration_workflow: CollaborationWorkflow,
     framework_text: str = "",
     track_context_text: str = "",
+    recent_conversation: list[ChatMessage] | None = None,
+    current_tasks: list[SessionTask] | None = None,
 ) -> str:
     common = (
         "You are a careful research assistant for an Obsidian vault. "
@@ -323,10 +335,22 @@ def _build_system_prompt(
             "beyond-evidence reasoning with [Inference]."
         )
 
+    chat_task_enabled = collaboration_workflow in {
+        CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE,
+        CollaborationWorkflow.ARRANGEMENT_PLANNER,
+        CollaborationWorkflow.SOUND_DESIGN_BRAINSTORM,
+    }
     if framework_text and _FRAMEWORK_BLOCK_START not in prompt:
         prompt += _format_internal_framework_block(framework_text)
     if track_context_text and _TRACK_CONTEXT_BLOCK_START not in prompt:
         prompt += _format_internal_track_context_block(track_context_text)
+    if chat_task_enabled:
+        tasks_block = _format_current_tasks_block(current_tasks or [])
+        conversation_block = _format_recent_conversation_block(recent_conversation or [])
+        if tasks_block and _CURRENT_TASKS_BLOCK_START not in prompt:
+            prompt += tasks_block
+        if conversation_block and _RECENT_CONVERSATION_BLOCK_START not in prompt:
+            prompt += conversation_block
     return prompt
 
 
@@ -474,6 +498,10 @@ _FRAMEWORK_BLOCK_START = "BEGIN INTERNAL CRITIQUE FRAMEWORK"
 _FRAMEWORK_BLOCK_END = "END INTERNAL CRITIQUE FRAMEWORK"
 _TRACK_CONTEXT_BLOCK_START = "BEGIN INTERNAL TRACK CONTEXT"
 _TRACK_CONTEXT_BLOCK_END = "END INTERNAL TRACK CONTEXT"
+_CURRENT_TASKS_BLOCK_START = "BEGIN CURRENT TASKS"
+_CURRENT_TASKS_BLOCK_END = "END CURRENT TASKS"
+_RECENT_CONVERSATION_BLOCK_START = "BEGIN RECENT CONVERSATION"
+_RECENT_CONVERSATION_BLOCK_END = "END RECENT CONVERSATION"
 
 
 def _format_internal_track_context_block(track_context_text: str) -> str:
@@ -481,6 +509,52 @@ def _format_internal_track_context_block(track_context_text: str) -> str:
         f"\n\n{_TRACK_CONTEXT_BLOCK_START}\n"
         f"{track_context_text.strip()}\n"
         f"{_TRACK_CONTEXT_BLOCK_END}"
+    )
+
+
+def _format_current_tasks_block(current_tasks: list[SessionTask]) -> str:
+    if not current_tasks:
+        return ""
+    ordered_tasks = sorted(
+        current_tasks,
+        key=lambda task: (task.status != "open", task.created_at, task.id),
+    )
+    lines: list[str] = []
+    for task in ordered_tasks:
+        if not task.text.strip():
+            continue
+        checkbox = "[ ]" if task.status == "open" else "[x]"
+        line = f"{checkbox} {task.text.strip()}"
+        if task.notes.strip():
+            line += f" ({task.notes.strip()})"
+        lines.append(line)
+    if not lines:
+        return ""
+    return (
+        f"\n\n{_CURRENT_TASKS_BLOCK_START}\n"
+        "Use these as internal execution priorities for the current music session. "
+        "Do not treat them as evidence or citation sources.\n\n"
+        + "\n".join(lines)
+        + f"\n{_CURRENT_TASKS_BLOCK_END}"
+    )
+
+
+def _format_recent_conversation_block(recent_conversation: list[ChatMessage]) -> str:
+    if not recent_conversation:
+        return ""
+    lines = [
+        f"{message.role.title()}: {message.content.strip()}"
+        for message in recent_conversation[-8:]
+        if message.content.strip()
+    ]
+    if not lines:
+        return ""
+    return (
+        f"\n\n{_RECENT_CONVERSATION_BLOCK_START}\n"
+        "Use this as recent collaboration continuity for the current session. "
+        "Do not treat it as evidence or citation sources.\n\n"
+        + "\n".join(lines)
+        + f"\n{_RECENT_CONVERSATION_BLOCK_END}"
     )
 
 

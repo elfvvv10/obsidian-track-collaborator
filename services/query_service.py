@@ -11,6 +11,7 @@ from services.common import ensure_index_compatible
 from services.music_workflow_service import MusicWorkflowService
 from services.models import (
     AnswerMode,
+    ChatMessage,
     CollaborationWorkflow,
     DomainProfile,
     QueryDebugInfo,
@@ -19,6 +20,7 @@ from services.models import (
     RetrievalMode,
     RetrievalModeUsed,
     RetrievalScope,
+    SessionTask,
     WebSearchAttemptInfo,
     WebQueryStrategy,
     WorkflowInput,
@@ -107,6 +109,8 @@ class QueryService:
                 domain_profile=request.domain_profile,
                 collaboration_workflow=request.collaboration_workflow,
                 workflow_input=request.workflow_input,
+                recent_conversation=request.recent_conversation,
+                current_tasks=request.current_tasks,
                 web_alignment=self._last_web_alignment,
             )
             initial_candidates = []
@@ -136,6 +140,8 @@ class QueryService:
                 domain_profile=request.domain_profile,
                 collaboration_workflow=request.collaboration_workflow,
                 workflow_input=request.workflow_input,
+                recent_conversation=request.recent_conversation,
+                current_tasks=request.current_tasks,
                 web_alignment=self._last_web_alignment,
             )
             reranking_applied = retrieval_debug.reranking_applied
@@ -513,6 +519,8 @@ def _build_answer_result(
     domain_profile: DomainProfile = DomainProfile.ELECTRONIC_MUSIC,
     collaboration_workflow=CollaborationWorkflow.GENERAL_ASK,
     workflow_input: WorkflowInput | None = None,
+    recent_conversation: list[ChatMessage] | None = None,
+    current_tasks: list[SessionTask] | None = None,
     web_alignment: WebAlignmentResult | None = None,
 ) -> AnswerResult:
     web_results = web_results or []
@@ -540,6 +548,8 @@ def _build_answer_result(
         domain_profile=domain_profile,
         collaboration_workflow=collaboration_workflow,
         workflow_input=workflow_input,
+        recent_conversation=recent_conversation,
+        current_tasks=current_tasks,
         web_query_used=web_alignment.query if web_alignment else question,
         web_query_strategy=web_alignment.strategy.value if web_alignment else "raw_question",
         web_alignment_note=web_alignment.warning if web_alignment else "",

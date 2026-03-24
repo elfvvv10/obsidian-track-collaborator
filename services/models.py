@@ -217,6 +217,8 @@ class QueryRequest:
     domain_profile: DomainProfile = DomainProfile.ELECTRONIC_MUSIC
     collaboration_workflow: CollaborationWorkflow = CollaborationWorkflow.GENERAL_ASK
     workflow_input: WorkflowInput = field(default_factory=WorkflowInput)
+    recent_conversation: list["ChatMessage"] = field(default_factory=list)
+    current_tasks: list["SessionTask"] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.retrieval_scope = RetrievalScope.coerce(self.retrieval_scope)
@@ -224,6 +226,27 @@ class QueryRequest:
         self.answer_mode = AnswerMode.coerce(self.answer_mode)
         self.domain_profile = DomainProfile.coerce(self.domain_profile)
         self.collaboration_workflow = CollaborationWorkflow.coerce(self.collaboration_workflow)
+
+
+@dataclass(slots=True)
+class ChatMessage:
+    """A single in-session chat message used as internal prompt context."""
+
+    role: str
+    content: str
+    created_at: str
+
+
+@dataclass(slots=True)
+class SessionTask:
+    """A lightweight in-session task item used as internal prompt context."""
+
+    id: str
+    text: str
+    status: str
+    source: str
+    created_at: str
+    notes: str = ""
 
 
 @dataclass(slots=True)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from uuid import uuid4
 
 import streamlit as st
 
@@ -12,6 +13,7 @@ from services.index_service import IndexService
 from services.music_workflow_service import MusicWorkflowService
 from services.models import (
     AnswerMode,
+    ChatMessage,
     CollaborationWorkflow,
     IngestionRequest,
     IndexResponse,
@@ -21,12 +23,13 @@ from services.models import (
     ResearchResponse,
     RetrievalMode,
     RetrievalScope,
+    SessionTask,
     WorkflowInput,
     WorkflowMode,
 )
 from services.query_service import QueryService
 from services.research_service import ResearchService
-from utils import RetrievalFilters, RetrievalOptions
+from utils import RetrievalFilters, RetrievalOptions, current_timestamp
 
 
 st.set_page_config(page_title="Electronic Music Research Assistant", layout="wide")
@@ -199,11 +202,18 @@ def _render_ask_tab(
             "workflow_energy_goal",
             "workflow_track_length",
             "workflow_role_of_key_elements",
+            "workflow_track_context_path",
+            "new_task_text",
+            "new_task_notes",
         ):
             st.session_state[key] = ""
         st.session_state["collaboration_workflow"] = CollaborationWorkflow.GENERAL_ASK.value
         st.session_state["workflow_mode"] = WorkflowMode.DIRECT.value
         st.session_state["max_subquestions"] = 3
+        st.session_state["chat_messages"] = []
+        st.session_state["session_tasks"] = []
+        st.session_state["last_query_response"] = None
+        st.session_state["last_question"] = ""
         st.session_state["reset_ask_form"] = False
 
     if status is not None:
@@ -212,8 +222,12 @@ def _render_ask_tab(
         elif not status.index_compatible:
             st.warning("The local index is out of date. Rebuild it from the Index tab.")
 
+    _render_task_panel()
+    st.markdown("### Session Chat")
+    st.caption("This session keeps the current chat and tasks in memory only. Reset Session clears both.")
+    _render_chat_history()
     st.markdown("### Composer")
-    st.caption("Write your idea or question, tune the workflow if needed, then press Send.")
+    st.caption("Write your next message, tune the workflow if needed, then press Send.")
     with st.form("ask_composer", clear_on_submit=False, enter_to_submit=False):
         question_col, save_col = st.columns([3, 2])
         with question_col:
@@ -327,8 +341,8 @@ def _render_ask_tab(
                 )
             submit_cols = st.columns([1, 1, 4])
             ask_clicked = submit_cols[0].form_submit_button("Send", type="primary", use_container_width=True)
-            clear_clicked = submit_cols[1].form_submit_button("Clear", use_container_width=True)
-            submit_cols[2].caption("Use Send to run the current prompt and workflow settings.")
+            clear_clicked = submit_cols[1].form_submit_button("Reset Session", use_container_width=True)
+            submit_cols[2].caption("Reset Session clears the current chat, tasks, and workflow context for this session.")
 
         with save_col:
             st.markdown("### Save Options")
@@ -355,6 +369,9 @@ def _render_ask_tab(
             st.warning("Enter a question before asking.")
         else:
             try:
+                user_message = ChatMessage(role="user", content=question.strip(), created_at=current_timestamp())
+                chat_messages = list(st.session_state["chat_messages"])
+                chat_messages.append(user_message)
                 request = QueryRequest(
                     question=question.strip(),
                     filters=_current_filters(),
@@ -366,6 +383,14 @@ def _render_ask_tab(
                     answer_mode=st.session_state["answer_mode"],
                     collaboration_workflow=st.session_state["collaboration_workflow"],
                     workflow_input=_current_workflow_input(),
+                    recent_conversation=_recent_conversation_for_prompt(
+                        chat_messages[:-1],
+                        st.session_state["collaboration_workflow"],
+                    ),
+                    current_tasks=_tasks_for_prompt(
+                        st.session_state["session_tasks"],
+                        st.session_state["collaboration_workflow"],
+                    ),
                 )
                 if st.session_state["collaboration_workflow"] == CollaborationWorkflow.RESEARCH_SESSION.value:
                     response = research_service.research(
@@ -385,8 +410,18 @@ def _render_ask_tab(
                     )
                 else:
                     response = query_service.ask(request)
+                if not isinstance(response, ResearchResponse):
+                    chat_messages.append(
+                        ChatMessage(
+                            role="assistant",
+                            content=response.answer,
+                            created_at=current_timestamp(),
+                        )
+                    )
+                    st.session_state["chat_messages"] = chat_messages
                 st.session_state["last_query_response"] = response
                 st.session_state["last_question"] = question.strip()
+                st.session_state["question"] = ""
             except Exception as exc:
                 st.session_state["last_query_response"] = None
                 st.error(str(exc))
@@ -450,12 +485,8 @@ def _render_ask_tab(
     trust_cols[2].metric("Non-curated note chunks", response.debug.non_curated_note_chunks)
     trust_cols[3].metric("Generated draft chunks", response.debug.generated_or_imported_chunks)
 
-    summary_col, sources_col = st.columns([3, 2])
-    with summary_col:
-        st.subheader("Answer")
-        st.write(response.answer)
-    with sources_col:
-        st.subheader("Sources")
+    st.subheader("Latest Response Sources")
+    with st.container():
         if response.curated_chunks:
             st.markdown("**Curated Knowledge**")
             for chunk in response.curated_chunks:
@@ -989,6 +1020,100 @@ def _current_workflow_input() -> WorkflowInput:
     )
 
 
+def _render_chat_history() -> None:
+    for index, message in enumerate(st.session_state.get("chat_messages", [])):
+        with st.chat_message(message.role):
+            st.write(message.content)
+            st.caption(f"{message.role.title()} message {index + 1} • {message.created_at}")
+
+
+def _render_task_panel() -> None:
+    with st.expander("Session Tasks", expanded=True):
+        st.caption("Tasks are session-only and are used as internal execution context for critique, arrangement, and sound-design workflows.")
+        with st.form("add_task_form", clear_on_submit=False, enter_to_submit=False):
+            st.text_input("Task", key="new_task_text", placeholder="Add a focused production task")
+            st.text_input("Notes (optional)", key="new_task_notes", placeholder="Optional detail")
+            add_task = st.form_submit_button("Add Task", use_container_width=True)
+
+        if add_task and st.session_state["new_task_text"].strip():
+            tasks = list(st.session_state["session_tasks"])
+            tasks.append(
+                SessionTask(
+                    id=uuid4().hex,
+                    text=st.session_state["new_task_text"].strip(),
+                    status="open",
+                    source="user",
+                    created_at=current_timestamp(),
+                    notes=st.session_state["new_task_notes"].strip(),
+                )
+            )
+            st.session_state["session_tasks"] = tasks
+            st.session_state["new_task_text"] = ""
+            st.session_state["new_task_notes"] = ""
+            st.rerun()
+
+        open_tasks = [task for task in st.session_state.get("session_tasks", []) if task.status == "open"]
+        completed_tasks = [task for task in st.session_state.get("session_tasks", []) if task.status == "completed"]
+
+        st.markdown("**Open Tasks**")
+        if not open_tasks:
+            st.caption("No open tasks in this session.")
+        for task in open_tasks:
+            _render_task_actions(task)
+
+        st.markdown("**Completed Tasks**")
+        if not completed_tasks:
+            st.caption("No completed tasks yet.")
+        for task in completed_tasks:
+            _render_task_actions(task)
+
+
+def _render_task_actions(task: SessionTask) -> None:
+    cols = st.columns([4, 1, 1])
+    note_suffix = f" ({task.notes})" if task.notes else ""
+    cols[0].write(f"{'[ ]' if task.status == 'open' else '[x]'} {task.text}{note_suffix}")
+    toggle_label = "Done" if task.status == "open" else "Reopen"
+    if cols[1].button(toggle_label, key=f"task-toggle-{task.id}", use_container_width=True):
+        updated_tasks: list[SessionTask] = []
+        for existing_task in st.session_state["session_tasks"]:
+            if existing_task.id == task.id:
+                updated_tasks.append(
+                    replace(
+                        existing_task,
+                        status="completed" if existing_task.status == "open" else "open",
+                    )
+                )
+            else:
+                updated_tasks.append(existing_task)
+        st.session_state["session_tasks"] = updated_tasks
+        st.rerun()
+    if cols[2].button("Delete", key=f"task-delete-{task.id}", use_container_width=True):
+        st.session_state["session_tasks"] = [
+            existing_task for existing_task in st.session_state["session_tasks"] if existing_task.id != task.id
+        ]
+        st.rerun()
+
+
+def _recent_conversation_for_prompt(
+    chat_messages: list[ChatMessage],
+    workflow_value: str,
+) -> list[ChatMessage]:
+    if workflow_value not in _CHAT_TASK_WORKFLOWS:
+        return []
+    return chat_messages[-8:]
+
+
+def _tasks_for_prompt(
+    session_tasks: list[SessionTask],
+    workflow_value: str,
+) -> list[SessionTask]:
+    if workflow_value not in _CHAT_TASK_WORKFLOWS:
+        return []
+    open_tasks = [task for task in session_tasks if task.status == "open"]
+    completed_tasks = [task for task in session_tasks if task.status == "completed"]
+    return open_tasks + completed_tasks
+
+
 def _init_session_state(config: AppConfig) -> None:
     defaults = {
         "question": "",
@@ -1016,6 +1141,10 @@ def _init_session_state(config: AppConfig) -> None:
         "workflow_track_length": "",
         "workflow_role_of_key_elements": "",
         "workflow_track_context_path": "",
+        "chat_messages": [],
+        "session_tasks": [],
+        "new_task_text": "",
+        "new_task_notes": "",
         "max_subquestions": 3,
         "debug_mode": False,
         "last_query_response": None,
@@ -1042,6 +1171,13 @@ def _config_from_session(config: AppConfig) -> AppConfig:
         ),
         auto_save_answer=bool(st.session_state.get("auto_save", config.auto_save_answer)),
     )
+
+
+_CHAT_TASK_WORKFLOWS = {
+    CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE.value,
+    CollaborationWorkflow.ARRANGEMENT_PLANNER.value,
+    CollaborationWorkflow.SOUND_DESIGN_BRAINSTORM.value,
+}
 
 
 if __name__ == "__main__":
