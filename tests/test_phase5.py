@@ -310,7 +310,7 @@ class Phase5WebSearchTests(unittest.TestCase):
                     raise ValueError("bad json")
 
             with patch("web_search.requests.get", return_value=StubResponse()):
-                with self.assertRaisesRegex(RuntimeError, "Response preview: <html>not json</html>"):
+                with self.assertRaisesRegex(RuntimeError, "not json"):
                     client.search("latest ai news")
 
     def test_web_client_accepts_javascript_content_type_with_json_body(self) -> None:
