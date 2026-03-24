@@ -212,7 +212,7 @@ class QueryRequest:
     auto_save: bool = False
     save_title: str | None = None
     retrieval_scope: RetrievalScope = RetrievalScope.KNOWLEDGE
-    retrieval_mode: RetrievalMode = RetrievalMode.LOCAL_ONLY
+    retrieval_mode: RetrievalMode = RetrievalMode.AUTO
     answer_mode: AnswerMode = AnswerMode.BALANCED
     domain_profile: DomainProfile = DomainProfile.ELECTRONIC_MUSIC
     collaboration_workflow: CollaborationWorkflow = CollaborationWorkflow.GENERAL_ASK
@@ -380,7 +380,7 @@ class ResearchRequest:
     filters: RetrievalFilters = field(default_factory=RetrievalFilters)
     options: RetrievalOptions = field(default_factory=RetrievalOptions)
     retrieval_scope: RetrievalScope = RetrievalScope.KNOWLEDGE
-    retrieval_mode: RetrievalMode = RetrievalMode.LOCAL_ONLY
+    retrieval_mode: RetrievalMode = RetrievalMode.AUTO
     answer_mode: AnswerMode = AnswerMode.BALANCED
     max_subquestions: int = 3
     auto_save: bool = False

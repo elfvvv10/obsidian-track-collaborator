@@ -224,10 +224,17 @@ class AnswerModePolicyTests(unittest.TestCase):
 
         prompt_payload = tracking["last_prompt"]
         self.assertIsNotNone(prompt_payload)
+        self.assertIn("Start with a direct answer to the user's music question", prompt_payload.user_prompt)
+        self.assertIn("Do not open with framing language", prompt_payload.user_prompt)
+        self.assertIn("Every meaningful suggestion must include how to do it", prompt_payload.user_prompt)
+        self.assertIn("Do not stop at abstract advice", prompt_payload.user_prompt)
+        self.assertIn("prioritize genre-native techniques first", prompt_payload.user_prompt)
+        self.assertIn("Ignore weak, tangential, or loosely related sources", prompt_payload.user_prompt)
         self.assertIn("how to implement the change", prompt_payload.user_prompt)
         self.assertIn("first pass", prompt_payload.user_prompt)
         self.assertIn("what to listen for afterward", prompt_payload.user_prompt)
         self.assertIn("why it matters", prompt_payload.user_prompt)
+        self.assertIn("provide multiple concrete, usable ideas", prompt_payload.user_prompt)
 
     def test_arrangement_workflow_prompt_encourages_implementation_coaching(self) -> None:
         service, tracking = make_query_service(
@@ -252,11 +259,57 @@ class AnswerModePolicyTests(unittest.TestCase):
 
         prompt_payload = tracking["last_prompt"]
         self.assertIsNotNone(prompt_payload)
+        self.assertIn("Start with a direct answer to the user's music question", prompt_payload.user_prompt)
+        self.assertIn("Use retrieved material to support, constrain, or refine the answer after the direct answer", prompt_payload.user_prompt)
         self.assertIn("how to implement it in practical production terms", prompt_payload.user_prompt)
         self.assertIn("minimal first pass", prompt_payload.user_prompt)
         self.assertIn("what to listen for afterward", prompt_payload.user_prompt)
+        self.assertIn("Every meaningful suggestion must include how to do it", prompt_payload.user_prompt)
 
-    def test_non_critique_workflow_prompt_does_not_gain_coaching_contract(self) -> None:
+    def test_sound_design_workflow_gains_answer_first_and_genre_grounding(self) -> None:
+        service, tracking = make_query_service(
+            local_chunks=[
+                RetrievedChunk(
+                    text="Progressive house bass design notes.",
+                    metadata={"note_title": "Bass Design", "source_path": "bass.md"},
+                    distance_or_score=0.1,
+                )
+            ],
+            web_results=[],
+            answer_text="Grounded answer [Local 1].",
+        )
+
+        service.ask(
+            QueryRequest(
+                question="Give me some progressive house bassline ideas.",
+                collaboration_workflow=CollaborationWorkflow.SOUND_DESIGN_BRAINSTORM,
+                workflow_input=WorkflowInput(genre="progressive house"),
+            )
+        )
+
+        prompt_payload = tracking["last_prompt"]
+        self.assertIsNotNone(prompt_payload)
+        self.assertIn("Start with a direct answer to the user's music question", prompt_payload.user_prompt)
+        self.assertIn("Every meaningful suggestion must include how to do it", prompt_payload.user_prompt)
+        self.assertIn("prioritize genre-native techniques first", prompt_payload.user_prompt)
+        self.assertIn("Treat cross-genre or adjacent-genre ideas as optional variations", prompt_payload.user_prompt)
+        self.assertIn("provide multiple concrete, usable ideas", prompt_payload.user_prompt)
+        self.assertIn("Quick Answer", prompt_payload.user_prompt)
+        self.assertIn("Production Recipes", prompt_payload.user_prompt)
+        self.assertIn("Groove / MIDI", prompt_payload.user_prompt)
+        self.assertIn("Sound Design", prompt_payload.user_prompt)
+        self.assertIn("How to Build It", prompt_payload.user_prompt)
+        self.assertIn("Where to Use It", prompt_payload.user_prompt)
+        self.assertIn("Do not open with phrases such as 'Based on the provided context'", prompt_payload.user_prompt)
+        self.assertIn("Do not produce generic advice or filler phrases", prompt_payload.user_prompt)
+        self.assertIn("Core recipes must be musically plausible for the requested genre or style", prompt_payload.user_prompt)
+        self.assertIn("prioritize genre-common archetypes first", prompt_payload.user_prompt)
+        self.assertIn("Weakly related or cross-genre retrieved material must not become core recommendations", prompt_payload.user_prompt)
+        self.assertIn("optional inspiration or an optional variation", prompt_payload.user_prompt)
+        self.assertIn("sensible starting points", prompt_payload.user_prompt)
+        self.assertIn("Reject arbitrary or musically implausible ideas", prompt_payload.user_prompt)
+
+    def test_non_target_workflow_prompt_does_not_gain_music_collaboration_contract(self) -> None:
         service, tracking = make_query_service(
             local_chunks=[
                 RetrievedChunk(
@@ -281,3 +334,34 @@ class AnswerModePolicyTests(unittest.TestCase):
         self.assertIsNotNone(prompt_payload)
         self.assertNotIn("what to listen for afterward", prompt_payload.user_prompt)
         self.assertNotIn("how to implement the change", prompt_payload.user_prompt)
+        self.assertNotIn("Start with a direct answer to the user's music question", prompt_payload.user_prompt)
+        self.assertNotIn("provide multiple concrete, usable ideas", prompt_payload.user_prompt)
+
+    def test_other_workflows_do_not_gain_sound_design_structure(self) -> None:
+        service, tracking = make_query_service(
+            local_chunks=[
+                RetrievedChunk(
+                    text="Arrangement note.",
+                    metadata={"note_title": "Arrangement", "source_path": "arrangement.md"},
+                    distance_or_score=0.1,
+                )
+            ],
+            web_results=[],
+            answer_text="Grounded answer [Local 1].",
+        )
+
+        service.ask(
+            QueryRequest(
+                question="Plan this arrangement.",
+                collaboration_workflow=CollaborationWorkflow.ARRANGEMENT_PLANNER,
+                workflow_input=WorkflowInput(track_length="6:00"),
+            )
+        )
+
+        prompt_payload = tracking["last_prompt"]
+        self.assertIsNotNone(prompt_payload)
+        self.assertNotIn("Groove / MIDI", prompt_payload.user_prompt)
+        self.assertNotIn("How to Build It", prompt_payload.user_prompt)
+        self.assertNotIn("Production Recipes", prompt_payload.user_prompt)
+        self.assertNotIn("Core recipes must be musically plausible for the requested genre or style", prompt_payload.user_prompt)
+        self.assertNotIn("Weakly related or cross-genre retrieved material must not become core recommendations", prompt_payload.user_prompt)

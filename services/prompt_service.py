@@ -439,6 +439,7 @@ def _workflow_instructions(collaboration_workflow: CollaborationWorkflow) -> str
     if collaboration_workflow == CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE:
         return (
             "Workflow instructions:\n"
+            f"{_music_collaboration_instruction_block()}\n"
             "- Critique the track concept like a constructive electronic music collaborator.\n"
             "- Identify what is working, what feels weak or unclear, and what should be developed next.\n"
             "- Include arrangement, energy, and sound-design directions when they are relevant.\n"
@@ -449,6 +450,7 @@ def _workflow_instructions(collaboration_workflow: CollaborationWorkflow) -> str
     if collaboration_workflow == CollaborationWorkflow.ARRANGEMENT_PLANNER:
         return (
             "Workflow instructions:\n"
+            f"{_music_collaboration_instruction_block()}\n"
             "- Turn the idea into a practical section-by-section arrangement plan.\n"
             "- Cover section goals, pacing, transitions, tension and release, and variation.\n"
             "- For major suggestions, explain why the change matters, how to implement it in practical production terms, a minimal first pass, and what to listen for afterward.\n"
@@ -458,6 +460,8 @@ def _workflow_instructions(collaboration_workflow: CollaborationWorkflow) -> str
     if collaboration_workflow == CollaborationWorkflow.SOUND_DESIGN_BRAINSTORM:
         return (
             "Workflow instructions:\n"
+            f"{_music_collaboration_instruction_block()}\n"
+            f"{_sound_design_structured_output_block()}\n"
             "- Focus on synth, drum, bass, texture, FX, modulation, layering, and space.\n"
             "- Suggest practical production directions rather than abstract adjectives alone.\n"
             "- Note mix-role implications when helpful."
@@ -474,6 +478,44 @@ def _workflow_instructions(collaboration_workflow: CollaborationWorkflow) -> str
         "- Answer like an electronic music research and collaboration assistant.\n"
         "- Use producer-friendly language and make suggestions actionable.\n"
         "- Do not force structure when the user only needs a direct answer."
+    )
+
+
+def _music_collaboration_instruction_block() -> str:
+    return (
+        "- Start with a direct answer to the user's music question. Do not open with framing language such as 'Based on the provided context' or 'From the sources'.\n"
+        "- Use retrieved material to support, constrain, or refine the answer after the direct answer, not to replace it or structure the response around it.\n"
+        "- Ignore weak, tangential, or loosely related sources instead of forcing them into the response.\n"
+        "- Every meaningful suggestion must include how to do it in practical production terms, such as MIDI patterns, synth settings, arrangement moves, automation moves, drum edits, bass edits, transition techniques, or subtraction.\n"
+        "- Do not stop at abstract advice. If you name a change, explain the execution steps or give a concrete example the producer can try immediately.\n"
+        "- Stay anchored to the stated genre, style, and workflow context. If a genre is present, prioritize genre-native techniques first and avoid drifting into other genres.\n"
+        "- Treat cross-genre or adjacent-genre ideas as optional variations and label them clearly as optional.\n"
+        "- If the user asks for ideas or options, provide multiple concrete, usable ideas rather than summarizing sources or staying conceptual."
+    )
+
+
+def _sound_design_structured_output_block() -> str:
+    return (
+        "- For this workflow, structure the answer exactly as: Quick Answer, Production Recipes, and Optional Variations when relevant.\n"
+        "- Quick Answer: 1-2 lines, no fluff, and no source-led framing.\n"
+        "- Production Recipes: provide 2-4 concrete ideas.\n"
+        "- For each production recipe, include these headings exactly: Name, Groove / MIDI, Sound Design, How to Build It, Where to Use It.\n"
+        "- Groove / MIDI must include timing guidance and note-length guidance.\n"
+        "- Sound Design must cover oscillator choice, filter direction, envelope behavior, and saturation or distortion when relevant.\n"
+        "- How to Build It must be step-by-step, numbered, and written as DAW-level actions.\n"
+        "- Where to Use It must name the arrangement context, such as intro, breakdown, build, or drop.\n"
+        "- Do not open with phrases such as 'Based on the provided context' or 'According to sources'.\n"
+        "- Do not produce generic advice or filler phrases such as 'experiment with', 'try different', or 'remember that'.\n"
+        "- Keep the output actionable, specific, and genre-grounded. Prioritize progressive-house conventions when the genre context points there.\n"
+        "- Core recipes must be musically plausible for the requested genre or style and should prioritize genre-common archetypes first.\n"
+        "- Avoid novelty, gimmicks, unusual hybrids, or structurally inappropriate ideas unless they are clearly labeled as optional variations.\n"
+        "- Do not confuse bassline design, percussion fills, drum tricks, and unrelated sound categories in the main recipe list.\n"
+        "- Weakly related or cross-genre retrieved material must not become core recommendations.\n"
+        "- If cross-genre material is genuinely useful, include it only as optional inspiration or an optional variation.\n"
+        "- Do not let imported or cross-genre source material distort the main recipe list.\n"
+        "- Prefer recommendations that a knowledgeable producer in the requested genre would recognize as sensible starting points.\n"
+        "- Reject arbitrary or musically implausible ideas even if a retrieved source mentions them.\n"
+        "- Cross-genre ideas are allowed only as clearly labeled optional variations."
     )
 
 

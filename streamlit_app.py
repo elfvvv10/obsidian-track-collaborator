@@ -229,6 +229,9 @@ def _render_ask_tab(
     clear_clicked = False
     question = ""
 
+    answer_mount = None
+    chat_detail_mount = None
+
     main_col, control_col = st.columns([3, 1.4], gap="large")
     with control_col:
         st.markdown("### Workspace Controls")
@@ -326,6 +329,7 @@ def _render_ask_tab(
             )
 
         _render_task_panel()
+        chat_detail_mount = st.container()
 
     chat_workspace_enabled = selected_workflow.value in _CHAT_TASK_WORKFLOWS
 
@@ -374,6 +378,8 @@ def _render_ask_tab(
                         use_container_width=True,
                         on_click=_submit_question_from_input,
                     )
+
+        answer_mount = st.container()
 
     if clear_clicked:
         st.session_state["reset_ask_form"] = True
@@ -455,7 +461,14 @@ def _render_ask_tab(
         _render_research_response(st.session_state.get("last_question", ""), response, research_service)
         return
 
-    detail_container = st.expander("Latest Response Details", expanded=not chat_workspace_enabled)
+    with answer_mount:
+        st.markdown("### Latest Answer")
+        with st.container(border=True):
+            st.write(response.answer)
+
+    detail_parent = chat_detail_mount if chat_workspace_enabled and chat_detail_mount is not None else st.container()
+    with detail_parent:
+        detail_container = st.expander("Latest Response Details", expanded=not chat_workspace_enabled)
     with detail_container:
         for warning in response.warnings:
             st.warning(warning)
@@ -1069,7 +1082,7 @@ def _render_chat_debug_panel(workflow_value: str) -> None:
 
 
 def _render_task_panel() -> None:
-    with st.expander("Session Tasks", expanded=True):
+    with st.expander("Session Tasks", expanded=False):
         st.caption("Tasks are session-only and are used as internal execution context for critique, arrangement, and sound-design workflows.")
         with st.form("add_task_form", clear_on_submit=False, enter_to_submit=False):
             st.text_input("Task", key="new_task_text", placeholder="Add a focused production task")
@@ -1173,7 +1186,7 @@ def _init_session_state(config: AppConfig) -> None:
         "include_linked": config.enable_linked_note_expansion,
         "retrieval_scope": RetrievalScope.KNOWLEDGE.value,
         "auto_save": config.auto_save_answer,
-        "retrieval_mode": RetrievalMode.LOCAL_ONLY.value,
+        "retrieval_mode": RetrievalMode.AUTO.value,
         "answer_mode": AnswerMode.BALANCED.value,
         "workflow_mode": WorkflowMode.DIRECT.value,
         "collaboration_workflow": CollaborationWorkflow.GENERAL_ASK.value,
