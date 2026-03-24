@@ -4,21 +4,21 @@
     "type": "split",
     "children": [
       {
-        "id": "556e9627a265e480",
+        "id": "56c7d80e96f257f4",
         "type": "tabs",
         "children": [
           {
-            "id": "75c6dea7636d6feb",
+            "id": "8601edc6c0fd1433",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "research_answers/2026-03-24-what-recent-external-context-is-relevant-answer.md",
+                "file": "Imports/Web Imports/2026-03-24-how-to-make-drum-bass-the-complete-guide-edmprod.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "2026-03-24-what-recent-external-context-is-relevant-answer"
+              "title": "2026-03-24-how-to-make-drum-bass-the-complete-guide-edmprod"
             }
           }
         ]
@@ -180,15 +180,34 @@
       "bases:Create new base": false
     }
   },
-  "active": "9f8e7cc1c223ba7c",
+  "active": "8601edc6c0fd1433",
   "lastOpenFiles": [
+    "Imports/YouTube Imports/2026-03-24-20-progressive-house-bass-patterns-tricks-that-cha.md",
+    "Imports/Web Imports/2026-03-24-how-to-make-drum-bass-the-complete-guide-edmprod.md",
+    "Research Sessions/2026-03-24-compare-my-notes-with-recent-external-co-answer-4.md",
+    "Research Sessions/2026-03-24-compare-my-notes-on-ai-agents-with-recen-answer.md",
+    "Research Sessions/2026-03-24-what-recent-external-context-is-relevant-answer.md",
+    "Research Sessions/2026-03-24-compare-my-notes-with-recent-external-co-answer-3.md",
+    "Research Sessions/2026-03-24-compare-my-notes-with-recent-external-co-answer-2.md",
+    "Research Sessions/2026-03-24-compare-my-notes-with-recent-external-co-answer.md",
+    "Research Sessions/2026-03-24-compare-my-notes-on-local-llms-with-rece-answer-2.md",
+    "Research Sessions/2026-03-24-compare-my-notes-on-local-llms-with-rece-answer.md",
+    "Knowledge/References/personal_knowledge_management.md",
+    "Knowledge/References/local_llms.md",
+    "Knowledge/References/ai_agents.md",
+    "ingested_youtube/2026-03-24-20-progressive-house-bass-patterns-tricks-that-cha.md",
+    "Knowledge/Sound Design",
+    "Knowledge/References",
+    "Knowledge/Mixing",
+    "Knowledge/Genres",
+    "Knowledge/Drums and Groove",
+    "Knowledge/Arrangement",
+    "Knowledge",
+    "Research Sessions",
+    "Imports/YouTube Imports",
+    "Imports/Web Imports",
     "research_answers/2026-03-24-what-recent-external-context-is-relevant-answer.md",
     "knowledge/Untitled.md",
-    "ingested_youtube",
-    "ingested_webpages",
-    "research_sessions",
-    "draft_answers",
-    "knowledge",
     "research_answers/2026-03-24-compare-my-notes-with-recent-external-co-answer-2.md",
     "research_answers/2026-03-24-compare-my-notes-on-local-llms-with-rece-answer-2.md",
     "research_answers/2026-03-24-compare-my-notes-with-recent-external-co-answer-4.md",
@@ -198,20 +217,6 @@
     "research_answers/2026-03-24-compare-my-notes-with-recent-external-co-answer.md",
     "ai_agents.md",
     "personal_knowledge_management.md",
-    "local_llms.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-16.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-local-models-answer.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-14.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-15.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-13.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-12.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-11.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-10.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-9.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-8.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-7.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-6.md",
-    "research_answers/2026-03-23-what-do-my-notes-say-about-ai-agents-answer-2.md"
+    "local_llms.md"
   ]
 }

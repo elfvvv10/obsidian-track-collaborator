@@ -161,7 +161,7 @@ Example `.env`:
 
 ```env
 OBSIDIAN_VAULT_PATH=./sample_vault
-OBSIDIAN_OUTPUT_PATH=./sample_vault/draft_answers
+OBSIDIAN_OUTPUT_PATH=./sample_vault/Drafts
 CHROMA_DB_PATH=./chroma_db
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_CHAT_MODEL=hermes3
@@ -178,8 +178,8 @@ MAX_LINKED_NOTES=2
 LINKED_NOTE_CHUNKS_PER_NOTE=1
 AUTO_SAVE_ANSWER=false
 INDEX_SAVED_ANSWERS=false
-RESEARCH_SESSIONS_FOLDER=research_sessions
-CURATED_KNOWLEDGE_FOLDER=knowledge
+RESEARCH_SESSIONS_FOLDER=Research Sessions
+CURATED_KNOWLEDGE_FOLDER=Knowledge
 INDEX_RESEARCH_SESSIONS=false
 INDEX_WEBPAGE_IMPORTS=false
 INDEX_YOUTUBE_IMPORTS=false
@@ -187,8 +187,8 @@ WEB_SEARCH_PROVIDER=wikipedia
 WEB_SEARCH_API_URL=
 WEB_SEARCH_MAX_RESULTS=3
 WEB_SEARCH_TIMEOUT_SECONDS=10
-WEBPAGE_INGESTION_FOLDER=ingested_webpages
-YOUTUBE_INGESTION_FOLDER=ingested_youtube
+WEBPAGE_INGESTION_FOLDER=Imports/Web Imports
+YOUTUBE_INGESTION_FOLDER=Imports/YouTube Imports
 AUTO_INDEX_AFTER_INGESTION=false
 WEBPAGE_FETCH_TIMEOUT_SECONDS=15
 WEBPAGE_FETCH_USER_AGENT=obsidian-rag-assistant/1.0
@@ -343,19 +343,13 @@ It is still intentionally bounded:
 
 ### Retrieval Scopes
 
-- `knowledge`: search curated knowledge only. This is the default and is the highest-trust local retrieval mode.
-- `extended`: search all indexed local content, including:
-  - curated knowledge
-  - all non-curated vault notes
-  - draft answers
-  - research sessions
-  - webpage imports
-  - YouTube imports
+- `knowledge`: curated notes plus indexed imported reference material such as ingested webpages and YouTube transcripts. This is the default and is the highest-trust local retrieval mode.
+- `extended`: everything in knowledge, plus indexed working notes, draft answers, and research sessions.
 
 Retrieval scope controls which local vault content is eligible for search. Retrieval mode still controls whether web evidence is allowed.
 
-By default, `knowledge` is the safest choice because it searches only notes under `CURATED_KNOWLEDGE_FOLDER`.
-`extended` is broader and more exploratory. It can be useful when you want to search unfinished notes, imported material, or draft outputs, but it may include lower-trust or partially complete content.
+By default, `knowledge` is the safest choice because it searches your maintained Knowledge material plus imported references while still excluding draft/generated outputs and other unfinished local notes.
+`extended` is broader and more exploratory. It can be useful when you want to search working notes or draft outputs too, but it may include lower-trust or partially complete content.
 
 When web search is used, local note sources and web sources are labeled separately in both the CLI and UI.
 The default provider is now Wikipedia search because it is a more reliable no-key option than the previous DuckDuckGo-only path.
@@ -399,7 +393,7 @@ python main.py ingest-webpage "https://example.com/article"
 python main.py ingest-webpage "https://example.com/article" --title "Example Article" --index-now
 ```
 
-Saved webpage notes go into `WEBPAGE_INGESTION_FOLDER` inside your vault, which defaults to `ingested_webpages/`. These imported notes are excluded from indexing by default so they can be reviewed before becoming part of your long-term knowledge base.
+Saved webpage notes go into `WEBPAGE_INGESTION_FOLDER` inside your vault, which defaults to `Imports/Web Imports/`. These imported notes are excluded from indexing by default so they can be reviewed before becoming part of your long-term knowledge base.
 
 Each saved note includes:
 
@@ -419,7 +413,7 @@ python main.py ingest-youtube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 python main.py ingest-youtube "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --title "Example Video" --index-now
 ```
 
-Saved YouTube notes go into `YOUTUBE_INGESTION_FOLDER` inside your vault, which defaults to `ingested_youtube/`. These imported notes are also excluded from indexing by default unless you opt them in.
+Saved YouTube notes go into `YOUTUBE_INGESTION_FOLDER` inside your vault, which defaults to `Imports/YouTube Imports/`. These imported notes are also excluded from indexing by default unless you opt them in.
 
 Each saved note includes:
 
@@ -444,8 +438,8 @@ The UI includes four main areas:
 - `Sidebar`: query filters and retrieval controls such as folder, path text, tag, top-k, reranking, linked-note expansion, auto-save, retrieval mode, and answer mode
 - `Ask`: producer-facing prompt input, a workflow selector for `General Ask`, `Genre Fit Review`, `Track Concept Critique`, `Arrangement Planner`, `Sound Design Brainstorm`, and `Research Session`, plus optional music-context fields such as genre, BPM, references, mood, arrangement notes, and sound palette
 - `Ask`: when web search is attempted, the UI can also show the actual web query used, whether a retry was attempted, and a brief explanation when no web sources were included
-- `Ask`: retrieved local content is separated into curated knowledge, non-curated notes, generated draft sources, imported sources, and web sources where applicable
-- `Ask`: debug/status output shows the current retrieval scope and separate counts for curated knowledge, non-curated notes, and generated/imported content
+- `Ask`: retrieved local content is separated into curated knowledge, imported knowledge, non-curated notes, generated draft sources, imported sources, and web sources where applicable
+- `Ask`: debug/status output shows the current retrieval scope and separate counts for curated knowledge, imported knowledge, non-curated notes, and generated draft content
 - `Ask`: `Research Session` stays visibly distinct and shows generated subquestions, step-by-step findings, and the final synthesized answer
 - `Ingest`: paste a webpage URL or YouTube URL, save it into the vault, and optionally trigger indexing right away
 - `Index`: readiness messages plus build and rebuild actions
@@ -500,7 +494,7 @@ python main.py ask "What themes recur in my product notes?"
 If you keep the sample settings, direct saved answers will appear under workflow-oriented draft folders inside the configured output path, and research outputs will appear in:
 
 ```text
-sample_vault/research_sessions/
+sample_vault/Research Sessions/
 ```
 
 A recommended vault structure for electronic music production work is:
@@ -529,7 +523,7 @@ sample_vault/
 └── Research Sessions/
 ```
 
-By default, notes in the dedicated draft, research-session, and import folders are excluded from indexing so generated or imported material does not silently become durable knowledge.
+By default, notes in the dedicated draft, research-session, and import folders are excluded from indexing so generated or imported material does not silently become durable knowledge before you opt in.
 
 Curated knowledge is whatever you intentionally maintain outside those draft/import folders, with `CURATED_KNOWLEDGE_FOLDER` provided as a clear target for future promotion workflows.
 
@@ -538,13 +532,12 @@ If you enable `INDEX_SAVED_ANSWERS=true`, those draft-answer notes are indexed a
 If you later query with `--retrieval-scope extended`, the app can search:
 
 - curated knowledge
+- indexed imported webpages and YouTube transcripts
 - normal non-curated notes elsewhere in the vault
 - saved drafts when indexed
 - research sessions when indexed
-- webpage imports when indexed
-- YouTube imports when indexed
 
-That broader scope is useful for exploratory work, but the default `knowledge` scope keeps day-to-day retrieval cleaner and more trustworthy.
+That broader scope is useful for exploratory work, but the default `knowledge` scope keeps day-to-day retrieval cleaner and more trustworthy while still allowing imported reference material when you have chosen to index it.
 
 ## Project Structure
 

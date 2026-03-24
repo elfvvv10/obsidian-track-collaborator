@@ -209,6 +209,32 @@ class WebpageIngestionTests(unittest.TestCase):
                         IngestionRequest(source="https://www.youtube.com/watch?v=abc123xyz00")
                     )
 
+    def test_youtube_transcript_fetch_supports_instance_api_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            config = make_config(root)
+            config.obsidian_vault_path.mkdir()
+            config.obsidian_output_path.mkdir()
+
+            class Snippet:
+                def __init__(self, text: str, start: float = 0.0, duration: float = 1.0) -> None:
+                    self.text = text
+                    self.start = start
+                    self.duration = duration
+
+            class StubTranscriptApi:
+                def fetch(self, video_id: str):
+                    return [
+                        Snippet("First line"),
+                        Snippet("[Music]"),
+                        Snippet("Second line"),
+                    ]
+
+            with patch("services.youtube_ingestion_service.YouTubeTranscriptApi", StubTranscriptApi):
+                transcript = YouTubeIngestionService(config)._fetch_transcript("abc123xyz00")
+
+            self.assertEqual(transcript, "First line\n\nSecond line")
+
     def test_ingestion_service_can_trigger_incremental_index_for_youtube(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

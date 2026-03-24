@@ -86,7 +86,7 @@ class YouTubeIngestionService:
             )
 
         try:
-            transcript_items = YouTubeTranscriptApi.get_transcript(video_id)
+            transcript_items = _get_transcript_items(video_id)
         except Exception as exc:  # pragma: no cover - library-specific failure types
             raise RuntimeError(f"Could not retrieve a transcript for this YouTube video: {exc}") from exc
 
@@ -112,3 +112,28 @@ def _extract_video_id(url: str) -> str | None:
                 return parts[1] or None
 
     return None
+
+
+def _get_transcript_items(video_id: str) -> list[dict[str, object]]:
+    """Fetch transcript items across older and newer youtube-transcript-api versions."""
+    if hasattr(YouTubeTranscriptApi, "get_transcript"):
+        return list(YouTubeTranscriptApi.get_transcript(video_id))
+
+    api = YouTubeTranscriptApi()
+    fetched_transcript = api.fetch(video_id)
+    return [_normalize_transcript_item(item) for item in fetched_transcript]
+
+
+def _normalize_transcript_item(item: object) -> dict[str, object]:
+    """Normalize transcript snippets from dict-based and object-based library versions."""
+    if isinstance(item, dict):
+        return dict(item)
+
+    text = getattr(item, "text", "")
+    start = getattr(item, "start", None)
+    duration = getattr(item, "duration", None)
+    return {
+        "text": text,
+        "start": start,
+        "duration": duration,
+    }

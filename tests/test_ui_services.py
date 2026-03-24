@@ -85,6 +85,7 @@ class UIFacingServiceTests(unittest.TestCase):
             self.assertEqual(response.debug.web_attempts, [])
             self.assertFalse(response.debug.web_retry_used)
             self.assertEqual(response.debug.curated_knowledge_chunks, 1)
+            self.assertEqual(response.debug.imported_knowledge_chunks, 0)
 
     def test_query_service_save_preserves_existing_evidence_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

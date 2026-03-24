@@ -192,6 +192,37 @@ class IntegrationTests(unittest.TestCase):
 
             self.assertTrue(results)
             self.assertTrue(all(chunk.metadata.get("content_scope") == "knowledge" for chunk in results))
+
+    def test_knowledge_scope_includes_imported_content_when_indexed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            vault = root / "vault"
+            vault.mkdir()
+            (vault / "knowledge").mkdir()
+            (vault / "ingested_youtube").mkdir()
+            (root / "output").mkdir()
+            config = replace(make_config(root), index_youtube_imports=True)
+
+            (vault / "knowledge" / "agents.md").write_text("# Agents\n\nCurated agent note.", encoding="utf-8")
+            (vault / "ingested_youtube" / "set.md").write_text(
+                '---\nsource_type: "youtube_import"\n---\n\n# DJ Set Breakdown\n\nImported production note.',
+                encoding="utf-8",
+            )
+
+            with patch("main.OllamaEmbeddingClient.embed_texts", side_effect=fake_embedding_for_texts):
+                run_index(config, reset_store=True)
+
+            retriever = Retriever(config, _StubEmbeddingClient(), VectorStore(config))
+            results = retriever.retrieve(
+                "What knowledge do my notes contain?",
+                options=RetrievalOptions(top_k=5, candidate_count=5),
+                retrieval_scope=RetrievalScope.KNOWLEDGE,
+            )
+
+            categories = {chunk.metadata.get("content_category") for chunk in results}
+            self.assertIn("curated_knowledge", categories)
+            self.assertIn("imported_knowledge", categories)
+            self.assertNotIn("non_curated_note", categories)
             self.assertTrue(all("scratch.md" not in str(chunk.metadata.get("source_path")) for chunk in results))
 
     def test_extended_scope_can_include_non_curated_and_imported_content(self) -> None:
@@ -224,7 +255,7 @@ class IntegrationTests(unittest.TestCase):
             categories = {chunk.metadata.get("content_category") for chunk in results}
             self.assertIn("curated_knowledge", categories)
             self.assertIn("non_curated_note", categories)
-            self.assertIn("generated_or_imported", categories)
+            self.assertIn("imported_knowledge", categories)
 
 
 class _StubEmbeddingClient(OllamaEmbeddingClient):

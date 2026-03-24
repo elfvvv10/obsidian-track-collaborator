@@ -210,17 +210,24 @@ def _classify_note_metadata(
     normalized = note_path.replace("\\", "/").strip("/")
     explicit_scope = str(frontmatter.get("content_scope", "")).strip().lower()
     explicit_status = str(frontmatter.get("status", "")).strip().lower()
+    source_type = str(frontmatter.get("source_type", "")).strip().lower()
+    is_imported_source = source_type in {"webpage_import", "youtube_import"}
+    is_generated_source = source_type in {"saved_answer", "research_session"}
 
     knowledge_prefix = _relative_prefix(config.curated_knowledge_path, config)
     generated_prefixes = {
         _relative_prefix(config.draft_answers_path, config),
         _relative_prefix(config.research_sessions_path, config),
+    } - {""}
+    imported_prefixes = {
         _relative_prefix(config.webpage_ingestion_path, config),
         _relative_prefix(config.youtube_ingestion_path, config),
     } - {""}
 
     if explicit_scope in {"knowledge", "extended"}:
         content_scope = explicit_scope
+    elif is_imported_source:
+        content_scope = "knowledge"
     elif explicit_status == "approved":
         content_scope = "knowledge"
     elif knowledge_prefix and (normalized == knowledge_prefix or normalized.startswith(f"{knowledge_prefix}/")):
@@ -228,7 +235,13 @@ def _classify_note_metadata(
     else:
         content_scope = "extended"
 
-    if normalized in generated_prefixes or any(normalized.startswith(f"{prefix}/") for prefix in generated_prefixes):
+    if is_imported_source or normalized in imported_prefixes or any(
+        normalized.startswith(f"{prefix}/") for prefix in imported_prefixes
+    ):
+        content_category = "imported_knowledge"
+    elif is_generated_source or normalized in generated_prefixes or any(
+        normalized.startswith(f"{prefix}/") for prefix in generated_prefixes
+    ):
         content_category = "generated_or_imported"
     elif content_scope == "knowledge":
         content_category = "curated_knowledge"
@@ -237,11 +250,10 @@ def _classify_note_metadata(
 
     inferred_source_kind = source_kind
     if content_category == "generated_or_imported" and source_kind == "primary_note":
-        source_type = str(frontmatter.get("source_type", "")).strip().lower()
-        if source_type in {"webpage_import", "youtube_import"}:
-            inferred_source_kind = "imported_content"
-        elif source_type in {"saved_answer", "research_session"}:
+        if is_generated_source:
             inferred_source_kind = "saved_answer"
+    if content_category == "imported_knowledge" and source_kind == "primary_note":
+        inferred_source_kind = "imported_content"
     return {
         "source_kind": inferred_source_kind,
         "content_scope": content_scope,

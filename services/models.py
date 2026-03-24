@@ -255,6 +255,7 @@ class QueryDebugInfo:
     web_results_discarded_by_filter: bool = False
     web_retry_used: bool = False
     curated_knowledge_chunks: int = 0
+    imported_knowledge_chunks: int = 0
     non_curated_note_chunks: int = 0
     generated_or_imported_chunks: int = 0
 
@@ -324,6 +325,10 @@ class QueryResponse:
     @property
     def curated_chunks(self) -> list[RetrievedChunk]:
         return [chunk for chunk in self.retrieved_chunks if chunk.metadata.get("content_category") == "curated_knowledge"]
+
+    @property
+    def imported_chunks(self) -> list[RetrievedChunk]:
+        return [chunk for chunk in self.retrieved_chunks if chunk.metadata.get("content_category") == "imported_knowledge"]
 
     @property
     def non_curated_chunks(self) -> list[RetrievedChunk]:

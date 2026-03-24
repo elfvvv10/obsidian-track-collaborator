@@ -222,6 +222,7 @@ class QueryService:
                 ),
                 web_retry_used=any(attempt.retry_used for attempt in attempts),
                 curated_knowledge_chunks=trust_counts["curated_knowledge"],
+                imported_knowledge_chunks=trust_counts["imported_knowledge"],
                 non_curated_note_chunks=trust_counts["non_curated_note"],
                 generated_or_imported_chunks=trust_counts["generated_or_imported"],
                 hallucination_guard_warnings=tuple(
@@ -675,6 +676,7 @@ def _resolve_retrieval_mode_used(
 def _count_trust_categories(chunks: list[RetrievedChunk]) -> dict[str, int]:
     counts = {
         "curated_knowledge": 0,
+        "imported_knowledge": 0,
         "non_curated_note": 0,
         "generated_or_imported": 0,
     }

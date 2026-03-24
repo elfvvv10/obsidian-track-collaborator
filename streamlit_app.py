@@ -93,60 +93,62 @@ def _safe_get_status(index_service: IndexService) -> tuple[IndexResponse | None,
 
 def _render_sidebar(config: AppConfig, status: IndexResponse | None, status_error: str | None) -> None:
     with st.sidebar:
-        st.header("Ask Controls")
-        st.session_state["folder_filter"] = st.text_input(
-            "Folder filter",
-            value=st.session_state["folder_filter"],
-            help="Only search notes from this vault-relative folder.",
-        )
-        st.session_state["path_filter"] = st.text_input(
-            "Path contains",
-            value=st.session_state["path_filter"],
-            help="Only search notes whose path contains this text.",
-        )
-        st.session_state["tag_filter"] = st.text_input(
-            "Tag filter",
-            value=st.session_state["tag_filter"],
-            help="Only search notes with this tag.",
-        )
-        st.session_state["top_k"] = int(
-            st.number_input(
-                "Top-k",
-                min_value=1,
-                max_value=20,
-                value=int(st.session_state["top_k"]),
-                help="How many final chunks to use when answering.",
-            )
-        )
-        st.session_state["enable_reranking"] = st.checkbox(
-            "Enable reranking",
-            value=st.session_state["enable_reranking"],
-        )
-        st.session_state["include_linked"] = st.checkbox(
-            "Include linked-note context",
-            value=st.session_state["include_linked"],
-        )
-        st.session_state["auto_save"] = st.checkbox(
-            "Auto-save answers",
-            value=st.session_state["auto_save"],
-        )
-        st.session_state["retrieval_mode"] = st.selectbox(
-            "Retrieval mode",
-            options=[mode.value for mode in RetrievalMode],
-            index=[mode.value for mode in RetrievalMode].index(st.session_state["retrieval_mode"]),
-            help="Choose local-only, automatic web fallback, or always-on hybrid web use.",
-        )
-        st.session_state["answer_mode"] = st.selectbox(
-            "Answer mode",
-            options=[mode.value for mode in AnswerMode],
-            index=[mode.value for mode in AnswerMode].index(st.session_state["answer_mode"]),
-            help=(
-                "Strict: retrieved evidence only. "
-                "Balanced: evidence first with limited reasoning. "
-                "Exploratory: evidence plus broader synthesis and labeled inference."
-            ),
-        )
-        st.caption("Retrieval scope is chosen in the Ask tab so it stays close to the current question.")
+        st.header("Retrieval Settings")
+        st.caption("These stay in the background while the composer remains the main workflow.")
+        with st.expander("Adjust Filters and Modes", expanded=False):
+            with st.form("sidebar_controls", clear_on_submit=False, enter_to_submit=False):
+                st.text_input(
+                    "Folder filter",
+                    key="folder_filter",
+                    help="Only search notes from this vault-relative folder.",
+                )
+                st.text_input(
+                    "Path contains",
+                    key="path_filter",
+                    help="Only search notes whose path contains this text.",
+                )
+                st.text_input(
+                    "Tag filter",
+                    key="tag_filter",
+                    help="Only search notes with this tag.",
+                )
+                st.number_input(
+                    "Top-k",
+                    min_value=1,
+                    max_value=20,
+                    help="How many final chunks to use when answering.",
+                    key="top_k",
+                )
+                st.checkbox(
+                    "Enable reranking",
+                    key="enable_reranking",
+                )
+                st.checkbox(
+                    "Include linked-note context",
+                    key="include_linked",
+                )
+                st.checkbox(
+                    "Auto-save answers",
+                    key="auto_save",
+                )
+                st.selectbox(
+                    "Retrieval mode",
+                    options=[mode.value for mode in RetrievalMode],
+                    help="Choose local-only, automatic web fallback, or always-on hybrid web use.",
+                    key="retrieval_mode",
+                )
+                st.selectbox(
+                    "Answer mode",
+                    options=[mode.value for mode in AnswerMode],
+                    help=(
+                        "Strict: retrieved evidence only. "
+                        "Balanced: evidence first with limited reasoning. "
+                        "Exploratory: evidence plus broader synthesis and labeled inference."
+                    ),
+                    key="answer_mode",
+                )
+                st.form_submit_button("Apply Retrieval Settings", use_container_width=True)
+        st.caption("Retrieval scope is chosen in the Ask tab so it stays close to the current prompt.")
 
         st.divider()
         st.subheader("App Readiness")
@@ -183,32 +185,55 @@ def _render_ask_tab(
     music_workflow_service: MusicWorkflowService,
     status: IndexResponse | None,
 ) -> None:
+    if st.session_state.get("reset_ask_form"):
+        for key in (
+            "question",
+            "save_title",
+            "workflow_genre",
+            "workflow_bpm",
+            "workflow_references",
+            "workflow_mood",
+            "workflow_arrangement_notes",
+            "workflow_instrumentation",
+            "workflow_sound_palette",
+            "workflow_energy_goal",
+            "workflow_track_length",
+            "workflow_role_of_key_elements",
+        ):
+            st.session_state[key] = ""
+        st.session_state["collaboration_workflow"] = CollaborationWorkflow.GENERAL_ASK.value
+        st.session_state["workflow_mode"] = WorkflowMode.DIRECT.value
+        st.session_state["max_subquestions"] = 3
+        st.session_state["reset_ask_form"] = False
+
     if status is not None:
         if status.total_chunks_stored == 0:
             st.info("Build the index in the Index tab before asking questions.")
         elif not status.index_compatible:
             st.warning("The local index is out of date. Rebuild it from the Index tab.")
 
-    question_col, save_col = st.columns([3, 2])
-    with question_col:
-        question = st.text_area(
-            "Prompt",
-            value=st.session_state.get("question", ""),
-            placeholder="Describe the track idea, style target, arrangement problem, sound design goal, or research question.",
-            height=120,
-        )
-        st.session_state["question"] = question
-        with st.container(border=True):
+    st.markdown("### Composer")
+    st.caption("Write your idea or question, tune the workflow if needed, then press Send.")
+    with st.form("ask_composer", clear_on_submit=False, enter_to_submit=False):
+        question_col, save_col = st.columns([3, 2])
+        with question_col:
+            question = st.text_area(
+                "Prompt",
+                key="question",
+                placeholder="Describe the track idea, style target, arrangement problem, sound design goal, or research question.",
+                height=120,
+                label_visibility="collapsed",
+            )
             st.markdown("#### Collaboration Workflow")
             workflow_options = [workflow.value for workflow in CollaborationWorkflow]
-            st.session_state["collaboration_workflow"] = st.selectbox(
+            selected_workflow_value = st.selectbox(
                 "Workflow",
                 options=workflow_options,
-                index=workflow_options.index(st.session_state["collaboration_workflow"]),
                 format_func=_workflow_label,
                 help="Choose a music collaboration workflow or a deeper research session.",
+                key="collaboration_workflow",
             )
-            selected_workflow = CollaborationWorkflow.coerce(st.session_state["collaboration_workflow"])
+            selected_workflow = CollaborationWorkflow.coerce(selected_workflow_value)
             st.session_state["workflow_mode"] = (
                 WorkflowMode.RESEARCH.value
                 if selected_workflow == CollaborationWorkflow.RESEARCH_SESSION
@@ -216,102 +241,110 @@ def _render_ask_tab(
             )
             st.caption(_workflow_help_text(selected_workflow))
             if selected_workflow == CollaborationWorkflow.RESEARCH_SESSION:
-                st.session_state["max_subquestions"] = int(
-                    st.number_input(
-                        "Max research subquestions",
-                        min_value=1,
-                        max_value=5,
-                        value=int(st.session_state["max_subquestions"]),
-                        help="Research mode decomposes your request into a small visible set of subquestions.",
+                st.number_input(
+                    "Max research subquestions",
+                    min_value=1,
+                    max_value=5,
+                    help="Research mode decomposes your request into a small visible set of subquestions.",
+                    key="max_subquestions",
+                )
+
+            with st.container(border=True):
+                st.markdown("#### Optional Context")
+                input_col1, input_col2 = st.columns(2)
+                with input_col1:
+                    st.text_input(
+                        "Genre / Style",
+                        key="workflow_genre",
+                        help="Examples: house, techno, melodic techno, trance, garage, breakbeat.",
                     )
-                )
-            input_col1, input_col2 = st.columns(2)
-            with input_col1:
-                st.session_state["workflow_genre"] = st.text_input(
-                    "Genre / Style",
-                    value=st.session_state["workflow_genre"],
-                    help="Examples: house, techno, melodic techno, trance, garage, breakbeat.",
-                )
-                st.session_state["workflow_references"] = st.text_input(
-                    "References",
-                    value=st.session_state["workflow_references"],
-                    help="Artists, tracks, labels, or scenes.",
-                )
-                st.session_state["workflow_arrangement_notes"] = st.text_area(
-                    "Arrangement Notes",
-                    value=st.session_state["workflow_arrangement_notes"],
-                    height=90,
-                )
-                st.session_state["workflow_sound_palette"] = st.text_area(
-                    "Sound Palette",
-                    value=st.session_state["workflow_sound_palette"],
-                    height=90,
-                )
-                st.session_state["workflow_role_of_key_elements"] = st.text_input(
-                    "Role of Key Elements",
-                    value=st.session_state["workflow_role_of_key_elements"],
-                    help="What the kick, bass, lead, textures, or vocal should do in the track.",
-                )
-            with input_col2:
-                st.session_state["workflow_bpm"] = st.text_input(
-                    "BPM / Tempo",
-                    value=st.session_state["workflow_bpm"],
-                )
-                st.session_state["workflow_mood"] = st.text_input(
-                    "Mood / Energy",
-                    value=st.session_state["workflow_mood"],
-                )
-                st.session_state["workflow_instrumentation"] = st.text_area(
-                    "Instrumentation",
-                    value=st.session_state["workflow_instrumentation"],
-                    height=90,
-                )
-                st.session_state["workflow_energy_goal"] = st.text_input(
-                    "Energy Goal",
-                    value=st.session_state["workflow_energy_goal"],
-                )
-                st.session_state["workflow_track_length"] = st.text_input(
-                    "Track Length",
-                    value=st.session_state["workflow_track_length"],
-                )
+                    st.text_input(
+                        "References",
+                        key="workflow_references",
+                        help="Artists, tracks, labels, or scenes.",
+                    )
+                    st.text_area(
+                        "Arrangement Notes",
+                        key="workflow_arrangement_notes",
+                        height=90,
+                    )
+                    st.text_area(
+                        "Sound Palette",
+                        key="workflow_sound_palette",
+                        height=90,
+                    )
+                    st.text_input(
+                        "Role of Key Elements",
+                        key="workflow_role_of_key_elements",
+                        help="What the kick, bass, lead, textures, or vocal should do in the track.",
+                    )
+                with input_col2:
+                    st.text_input(
+                        "BPM / Tempo",
+                        key="workflow_bpm",
+                    )
+                    st.text_input(
+                        "Mood / Energy",
+                        key="workflow_mood",
+                    )
+                    st.text_area(
+                        "Instrumentation",
+                        key="workflow_instrumentation",
+                        height=90,
+                    )
+                    st.text_input(
+                        "Energy Goal",
+                        key="workflow_energy_goal",
+                    )
+                    st.text_input(
+                        "Track Length",
+                        key="workflow_track_length",
+                    )
             st.markdown("#### Retrieval Scope")
-            st.session_state["retrieval_scope"] = st.radio(
+            st.radio(
                 "Local retrieval scope",
                 options=[RetrievalScope.KNOWLEDGE.value, RetrievalScope.EXTENDED.value],
-                index=[RetrievalScope.KNOWLEDGE.value, RetrievalScope.EXTENDED.value].index(
-                    st.session_state["retrieval_scope"]
-                ),
                 horizontal=True,
                 format_func=lambda value: (
-                    "Knowledge — curated notes only"
+                    "Knowledge — curated notes + imported reference material"
                     if value == RetrievalScope.KNOWLEDGE.value
-                    else "Extended — curated + non-curated notes, drafts, research, and imports"
+                    else "Extended — knowledge + working notes + generated drafts"
                 ),
+                key="retrieval_scope",
             )
             if st.session_state["retrieval_scope"] == RetrievalScope.KNOWLEDGE.value:
-                st.caption("Knowledge scope searches only notes inside your curated knowledge folder.")
+                st.caption(
+                    "Searches your curated Knowledge folders plus indexed imported reference material such as webpages and YouTube transcripts."
+                )
             else:
                 st.caption(
-                    "Extended scope searches curated notes plus indexed non-curated notes, drafts, research outputs, and imports."
+                    "Searches everything in Knowledge, plus indexed working notes, Drafts, and Research Sessions."
                 )
+            submit_cols = st.columns([1, 1, 4])
+            ask_clicked = submit_cols[0].form_submit_button("Send", type="primary", use_container_width=True)
+            clear_clicked = submit_cols[1].form_submit_button("Clear", use_container_width=True)
+            submit_cols[2].caption("Use Send to run the current prompt and workflow settings.")
 
-    with save_col:
-        st.markdown("### Save Options")
-        selected_workflow = CollaborationWorkflow.coerce(st.session_state["collaboration_workflow"])
-        st.caption(
-            f"This workflow saves by default to `{music_workflow_service.default_save_path(selected_workflow)}`."
-        )
-        st.session_state["save_title"] = st.text_input(
-            "Optional note title",
-            value=st.session_state["save_title"],
-            help="Override the saved note title and filename slug.",
-        )
-        if st.session_state.get("last_query_response") and st.session_state["last_query_response"].has_saved:
-            st.success(f"Saved to {st.session_state['last_query_response'].saved_path}")
-        else:
-            st.caption("You can save the current answer after asking a question.")
+        with save_col:
+            st.markdown("### Save Options")
+            selected_workflow = CollaborationWorkflow.coerce(st.session_state["collaboration_workflow"])
+            st.caption(
+                f"This workflow saves by default to `{music_workflow_service.default_save_path(selected_workflow)}`."
+            )
+            st.text_input(
+                "Optional note title",
+                key="save_title",
+                help="Override the saved note title and filename slug.",
+            )
+            if st.session_state.get("last_query_response") and st.session_state["last_query_response"].has_saved:
+                st.success(f"Saved to {st.session_state['last_query_response'].saved_path}")
+            else:
+                st.caption("You can save the current answer after asking a question.")
 
-    ask_clicked = st.button("Ask", type="primary")
+    if clear_clicked:
+        st.session_state["reset_ask_form"] = True
+        st.rerun()
+
     if ask_clicked:
         if not question.strip():
             st.warning("Enter a question before asking.")
@@ -406,10 +439,11 @@ def _render_ask_tab(
     status_cols[3].metric("Web used", "Yes" if response.web_used else "No")
     status_cols[4].metric("Inference used", "Yes" if response.inference_used else "No")
 
-    trust_cols = st.columns(3)
+    trust_cols = st.columns(4)
     trust_cols[0].metric("Curated knowledge chunks", response.debug.curated_knowledge_chunks)
-    trust_cols[1].metric("Non-curated note chunks", response.debug.non_curated_note_chunks)
-    trust_cols[2].metric("Generated/import chunks", response.debug.generated_or_imported_chunks)
+    trust_cols[1].metric("Imported knowledge chunks", response.debug.imported_knowledge_chunks)
+    trust_cols[2].metric("Non-curated note chunks", response.debug.non_curated_note_chunks)
+    trust_cols[3].metric("Generated draft chunks", response.debug.generated_or_imported_chunks)
 
     summary_col, sources_col = st.columns([3, 2])
     with summary_col:
@@ -421,11 +455,15 @@ def _render_ask_tab(
             st.markdown("**Curated Knowledge**")
             for chunk in response.curated_chunks:
                 st.write(f"- {_source_line_from_chunk(chunk, label='[Local]')}")
+        if response.imported_chunks:
+            st.markdown("**Imported Knowledge**")
+            for chunk in response.imported_chunks:
+                st.write(f"- {_source_line_from_chunk(chunk, label='[Import]')}")
         if response.non_curated_chunks:
             st.markdown("**Non-Curated Notes**")
             for chunk in response.non_curated_chunks:
                 st.write(f"- {_source_line_from_chunk(chunk, label='[Local]')}")
-        if not response.curated_chunks and not response.non_curated_chunks:
+        if not response.curated_chunks and not response.imported_chunks and not response.non_curated_chunks:
             st.write("- No local note sources")
         if response.saved_sources:
             st.markdown("**Generated Draft Sources**")
@@ -534,11 +572,18 @@ def _render_research_response(
             st.markdown("**Curated Knowledge**")
             for chunk in curated_chunks:
                 st.write(f"- {_source_line_from_chunk(chunk, label='[Local]')}")
+        imported_chunks = [
+            chunk for chunk in response.retrieved_chunks if chunk.metadata.get("content_category") == "imported_knowledge"
+        ]
+        if imported_chunks:
+            st.markdown("**Imported Knowledge**")
+            for chunk in imported_chunks:
+                st.write(f"- {_source_line_from_chunk(chunk, label='[Import]')}")
         if non_curated_chunks:
             st.markdown("**Non-Curated Notes**")
             for chunk in non_curated_chunks:
                 st.write(f"- {_source_line_from_chunk(chunk, label='[Local]')}")
-        if not curated_chunks and not non_curated_chunks:
+        if not curated_chunks and not imported_chunks and not non_curated_chunks:
             st.write("- No local note sources")
         if response.saved_sources:
             st.markdown("**Generated Draft Sources**")
@@ -580,26 +625,25 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
     with webpage_col:
         st.subheader("Import a Webpage")
         st.caption("Saved into the configured webpage-imports folder for later review or promotion.")
-        st.session_state["ingest_url"] = st.text_input(
-            "Webpage URL",
-            value=st.session_state["ingest_url"],
-            placeholder="https://example.com/article",
-            key="ingest_url_input",
-        )
-        st.session_state["ingest_title"] = st.text_input(
-            "Optional note title",
-            value=st.session_state["ingest_title"],
-            help="Override the saved note title and filename slug.",
-            key="ingest_title_input",
-        )
-        st.session_state["ingest_index_now"] = st.checkbox(
-            "Index immediately after save",
-            value=st.session_state["ingest_index_now"],
-            help="Run the existing incremental index after creating the note.",
-            key="ingest_index_now_checkbox",
-        )
+        with st.form("ingest_webpage_form", clear_on_submit=False, enter_to_submit=False):
+            st.text_input(
+                "Webpage URL",
+                placeholder="https://example.com/article",
+                key="ingest_url",
+            )
+            st.text_input(
+                "Optional note title",
+                key="ingest_title",
+                help="Override the saved note title and filename slug.",
+            )
+            st.checkbox(
+                "Index immediately after save",
+                help="Run the existing incremental index after creating the note.",
+                key="ingest_index_now",
+            )
+            webpage_submit = st.form_submit_button("Ingest Webpage", type="primary", use_container_width=True)
 
-        if st.button("Ingest Webpage", type="primary"):
+        if webpage_submit:
             url = st.session_state["ingest_url"].strip()
             if not url:
                 st.warning("Enter a webpage URL before starting ingestion.")
@@ -621,26 +665,25 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
     with youtube_col:
         st.subheader("Import a YouTube Video")
         st.caption("Saved into the configured YouTube-imports folder for later review or promotion.")
-        st.session_state["youtube_url"] = st.text_input(
-            "YouTube URL",
-            value=st.session_state["youtube_url"],
-            placeholder="https://www.youtube.com/watch?v=...",
-            key="youtube_url_input",
-        )
-        st.session_state["youtube_title"] = st.text_input(
-            "Optional video note title",
-            value=st.session_state["youtube_title"],
-            help="Override the saved note title and filename slug.",
-            key="youtube_title_input",
-        )
-        st.session_state["youtube_index_now"] = st.checkbox(
-            "Index YouTube note immediately",
-            value=st.session_state["youtube_index_now"],
-            help="Run the existing incremental index after creating the note.",
-            key="youtube_index_now_checkbox",
-        )
+        with st.form("ingest_youtube_form", clear_on_submit=False, enter_to_submit=False):
+            st.text_input(
+                "YouTube URL",
+                placeholder="https://www.youtube.com/watch?v=...",
+                key="youtube_url",
+            )
+            st.text_input(
+                "Optional video note title",
+                key="youtube_title",
+                help="Override the saved note title and filename slug.",
+            )
+            st.checkbox(
+                "Index YouTube note immediately",
+                help="Run the existing incremental index after creating the note.",
+                key="youtube_index_now",
+            )
+            youtube_submit = st.form_submit_button("Ingest YouTube", type="primary", use_container_width=True)
 
-        if st.button("Ingest YouTube", type="primary"):
+        if youtube_submit:
             url = st.session_state["youtube_url"].strip()
             if not url:
                 st.warning("Enter a YouTube URL before starting ingestion.")
@@ -702,6 +745,7 @@ def _render_debug_section(response: QueryResponse) -> None:
                 "answer_mode_used": response.debug.answer_mode_used,
                 "web_used": response.debug.web_used,
                 "curated_knowledge_chunks": response.debug.curated_knowledge_chunks,
+                "imported_knowledge_chunks": response.debug.imported_knowledge_chunks,
                 "non_curated_note_chunks": response.debug.non_curated_note_chunks,
                 "generated_or_imported_chunks": response.debug.generated_or_imported_chunks,
                 "local_retrieval_weak": response.debug.local_retrieval_weak,
