@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from config import AppConfig
+from services.framework_service import FrameworkService
 from services.models import (
     AnswerMode,
     CollaborationWorkflow,
@@ -31,6 +33,15 @@ class PromptPayload:
 class PromptService:
     """Build answer-mode-specific prompts while keeping policy out of the UI."""
 
+    def __init__(
+        self,
+        config: AppConfig,
+        *,
+        framework_service_cls: type[FrameworkService] = FrameworkService,
+    ) -> None:
+        self.config = config
+        self.framework_service = framework_service_cls(config)
+
     def build_prompt_payload(
         self,
         question: str,
@@ -50,11 +61,13 @@ class PromptService:
         citation_sources, citation_labels = build_citation_sources(chunks, web_results)
         evidence_types_used = _build_evidence_types(chunks, web_results)
         workflow_input = workflow_input or WorkflowInput()
+        framework_text = self.framework_service.get_framework_text(collaboration_workflow, domain_profile)
         return PromptPayload(
             system_prompt=_build_system_prompt(
                 answer_mode,
                 domain_profile=domain_profile,
                 collaboration_workflow=collaboration_workflow,
+                framework_text=framework_text,
             ),
             user_prompt=_build_user_prompt(
                 question,
@@ -250,6 +263,7 @@ def _build_system_prompt(
     *,
     domain_profile: DomainProfile,
     collaboration_workflow: CollaborationWorkflow,
+    framework_text: str = "",
 ) -> str:
     common = (
         "You are a careful research assistant for an Obsidian vault. "
@@ -265,28 +279,33 @@ def _build_system_prompt(
     )
     workflow_block = f" Active collaboration workflow: {collaboration_workflow.value}."
     if answer_mode == AnswerMode.STRICT:
-        return (
+        prompt = (
             common
             + domain_block
             + workflow_block
             + " Strict mode: use only retrieved evidence, refuse when evidence is insufficient, "
             "and do not present unsupported claims as facts."
         )
-    if answer_mode == AnswerMode.EXPLORATORY:
-        return (
+    elif answer_mode == AnswerMode.EXPLORATORY:
+        prompt = (
             common
             + domain_block
             + workflow_block
             + " Exploratory mode: you may synthesize and infer beyond direct evidence, but label "
             "those parts with [Inference] and keep supported claims cited."
         )
-    return (
-        common
-        + domain_block
-        + workflow_block
-        + " Balanced mode: prioritize retrieved evidence, allow limited synthesis, and label any "
-        "beyond-evidence reasoning with [Inference]."
-    )
+    else:
+        prompt = (
+            common
+            + domain_block
+            + workflow_block
+            + " Balanced mode: prioritize retrieved evidence, allow limited synthesis, and label any "
+            "beyond-evidence reasoning with [Inference]."
+        )
+
+    if framework_text:
+        prompt += _format_internal_framework_block(framework_text)
+    return prompt
 
 
 def _build_user_prompt(
@@ -413,6 +432,16 @@ def _format_workflow_input(workflow_input: WorkflowInput) -> str:
     if not values:
         return "No additional structured workflow input was provided."
     return "\n".join(f"- {key.replace('_', ' ').title()}: {value}" for key, value in values.items())
+
+
+def _format_internal_framework_block(framework_text: str) -> str:
+    return (
+        "\n\nBEGIN INTERNAL CRITIQUE FRAMEWORK\n"
+        "Apply the following critique system when evaluating the user's track critique request. "
+        "Use it as internal operating guidance, not as evidence or user content.\n\n"
+        f"{framework_text.strip()}\n"
+        "END INTERNAL CRITIQUE FRAMEWORK"
+    )
 
 
 def _format_local_context(chunks: list[RetrievedChunk]) -> str:

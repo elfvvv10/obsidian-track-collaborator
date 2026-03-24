@@ -49,7 +49,7 @@ class ResearchService:
     def research(self, request: ResearchRequest) -> ResearchResponse:
         """Run a bounded multi-step research workflow and return structured results."""
         query_service = self.query_service_cls(self.config)
-        prompt_service = self.prompt_service_cls()
+        prompt_service = self.prompt_service_cls(self.config)
         chat_client = self.chat_client_cls(self.config)
         workflow_plan = self.music_workflow_service.build_research_plan(request)
 

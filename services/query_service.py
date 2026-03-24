@@ -72,7 +72,7 @@ class QueryService:
         retriever = self.retriever_cls(self.config, embedding_client, vector_store)
         chat_client = self.chat_client_cls(self.config)
         web_search_service = self.web_search_service_cls(self.config)
-        prompt_service = self.prompt_service_cls()
+        prompt_service = self.prompt_service_cls(self.config)
         web_alignment_service = self.web_alignment_service_cls()
         workflow_plan = self.music_workflow_service.build_query_plan(request)
         self._last_web_alignment = None

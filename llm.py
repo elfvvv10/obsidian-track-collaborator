@@ -26,6 +26,7 @@ class OllamaChatClient:
     """Small wrapper around the Ollama chat HTTP API."""
 
     def __init__(self, config: AppConfig) -> None:
+        self.config = config
         self.base_url = config.ollama_base_url
         self.model = config.ollama_chat_model
         self.timeout = config.ollama_timeout_seconds
@@ -39,7 +40,7 @@ class OllamaChatClient:
         retrieval_mode: str = "local_only",
     ) -> str:
         """Send a grounded chat prompt to Ollama and return the answer."""
-        prompt_payload = PromptService().build_prompt_payload(
+        prompt_payload = PromptService(self.config).build_prompt_payload(
             question,
             chunks,
             web_results=web_results or [],
