@@ -13,3 +13,9 @@ sample_vault/.obsidian/workspace.json
 .DS_Store
 .DS_Store
 sample_vault/.obsidian/workspace.json
+.venv/
+__pycache__/
+*.pyc
+.env
+chroma_db/
+chroma_db_test/
