@@ -9,6 +9,8 @@ from requests import Response
 from requests.exceptions import RequestException
 
 from config import AppConfig
+from services.models import AnswerMode, RetrievalMode
+from services.prompt_service import PromptPayload, PromptService
 from utils import RetrievedChunk
 from web_search import WebSearchResult
 
@@ -37,8 +39,19 @@ class OllamaChatClient:
         retrieval_mode: str = "local_only",
     ) -> str:
         """Send a grounded chat prompt to Ollama and return the answer."""
+        prompt_payload = PromptService().build_prompt_payload(
+            question,
+            chunks,
+            web_results=web_results or [],
+            retrieval_mode=RetrievalMode.coerce(retrieval_mode),
+            answer_mode=AnswerMode.BALANCED,
+            local_retrieval_weak=False,
+        )
+        return self.answer_with_prompt(prompt_payload)
+
+    def answer_with_prompt(self, prompt_payload: PromptPayload) -> str:
+        """Send a prepared prompt payload to Ollama and return the answer."""
         self._ensure_model_available()
-        user_prompt = build_prompt(question, chunks, web_results=web_results or [], retrieval_mode=retrieval_mode)
 
         response = self._post_with_retry(
             "/api/chat",
@@ -46,8 +59,8 @@ class OllamaChatClient:
                 "model": self.model,
                 "stream": False,
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
+                    {"role": "system", "content": prompt_payload.system_prompt},
+                    {"role": "user", "content": prompt_payload.user_prompt},
                 ],
             },
         )
@@ -105,7 +118,7 @@ def build_prompt(
     web_results: list[WebSearchResult] | None = None,
     retrieval_mode: str = "local_only",
 ) -> str:
-    """Build a grounded prompt from retrieved chunks and the user question."""
+    """Build a backward-compatible grounded prompt from retrieved evidence."""
     web_results = web_results or []
     if not chunks:
         local_context_block = "No relevant note context was retrieved."

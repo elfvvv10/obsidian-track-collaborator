@@ -9,12 +9,17 @@ from retriever import Retriever
 from saver import save_answer
 from services.common import ensure_index_compatible
 from services.models import (
+    AnswerMode,
     QueryDebugInfo,
     QueryRequest,
     QueryResponse,
     RetrievalMode,
     RetrievalModeUsed,
+    WebSearchAttemptInfo,
+    WebQueryStrategy,
 )
+from services.prompt_service import PromptService, answer_uses_inference, build_citation_sources, enforce_citation_summary
+from services.web_alignment_service import WebAlignmentResult, WebAlignmentService
 from services.web_search_service import WebSearchService
 from utils import AnswerResult, RetrievedChunk, get_logger
 from vector_store import VectorStore
@@ -36,6 +41,8 @@ class QueryService:
         retriever_cls: type[Retriever] = Retriever,
         vector_store_cls: type[VectorStore] = VectorStore,
         web_search_service_cls: type[WebSearchService] = WebSearchService,
+        prompt_service_cls: type[PromptService] = PromptService,
+        web_alignment_service_cls: type[WebAlignmentService] = WebAlignmentService,
         capture_debug_trace: bool = True,
     ) -> None:
         self.config = config
@@ -44,7 +51,11 @@ class QueryService:
         self.retriever_cls = retriever_cls
         self.vector_store_cls = vector_store_cls
         self.web_search_service_cls = web_search_service_cls
+        self.prompt_service_cls = prompt_service_cls
+        self.web_alignment_service_cls = web_alignment_service_cls
         self.capture_debug_trace = capture_debug_trace
+        self._last_web_alignment: WebAlignmentResult | None = None
+        self._last_web_attempts: list[WebSearchAttemptInfo] = []
 
     def ask(self, request: QueryRequest) -> QueryResponse:
         """Run the full question-answer flow and return structured UI-friendly results."""
@@ -55,6 +66,10 @@ class QueryService:
         retriever = self.retriever_cls(self.config, embedding_client, vector_store)
         chat_client = self.chat_client_cls(self.config)
         web_search_service = self.web_search_service_cls(self.config)
+        prompt_service = self.prompt_service_cls()
+        web_alignment_service = self.web_alignment_service_cls()
+        self._last_web_alignment = None
+        self._last_web_attempts = []
 
         logger.info("Retrieving relevant notes")
         if not self.capture_debug_trace:
@@ -75,13 +90,18 @@ class QueryService:
                 primary_chunks=primary_chunks,
                 retrieval_mode=request.retrieval_mode,
                 web_search_service=web_search_service,
+                web_alignment_service=web_alignment_service,
             )
             answer_result = _build_answer_result(
                 request.question,
                 final_chunks,
                 chat_client,
+                prompt_service=prompt_service,
                 web_results=web_results,
                 retrieval_mode=request.retrieval_mode,
+                answer_mode=request.answer_mode,
+                local_retrieval_weak=_is_local_retrieval_weak(primary_chunks),
+                web_alignment=self._last_web_alignment,
             )
             initial_candidates = []
             reranking_applied = bool(request.options.rerank or request.options.boost_tags)
@@ -100,21 +120,51 @@ class QueryService:
                 primary_chunks=primary_chunks,
                 retrieval_mode=request.retrieval_mode,
                 web_search_service=web_search_service,
+                web_alignment_service=web_alignment_service,
             )
             answer_result = _build_answer_result(
                 request.question,
                 final_chunks,
                 chat_client,
+                prompt_service=prompt_service,
                 web_results=web_results,
                 retrieval_mode=request.retrieval_mode,
+                answer_mode=request.answer_mode,
+                local_retrieval_weak=_is_local_retrieval_weak(primary_chunks),
+                web_alignment=self._last_web_alignment,
             )
             reranking_applied = retrieval_debug.reranking_applied
             reranking_changed = retrieval_debug.reranking_changed
 
-        warnings = _build_warnings(answer_result, web_results=web_results)
+        warnings = _build_warnings(
+            answer_result,
+            web_results=web_results,
+            answer_mode=request.answer_mode,
+        )
         warnings.extend(web_warnings)
+        alignment = getattr(self, "_last_web_alignment", None)
+        attempts = list(self._last_web_attempts)
+        warnings.extend(_build_guard_warnings(
+            answer_result=answer_result,
+            web_results=web_results,
+            answer_mode=request.answer_mode,
+            local_retrieval_weak=_is_local_retrieval_weak(primary_chunks),
+            web_alignment=alignment,
+            web_attempts=attempts,
+        ))
+        warnings = list(dict.fromkeys(warnings))
         linked_chunks = [chunk for chunk in answer_result.retrieved_chunks if chunk.metadata.get("linked_context")]
         saved_path = None
+        citation_sources, citation_labels = build_citation_sources(answer_result.retrieved_chunks, web_results)
+        inference_used = answer_uses_inference(answer_result.answer)
+        evidence_types_used = tuple(
+            source_type
+            for source_type, enabled in (
+                ("local_note", bool(answer_result.retrieved_chunks)),
+                ("web", bool(web_results)),
+            )
+            if enabled
+        )
 
         if request.auto_save or self.config.auto_save_answer:
             saved_path = save_answer(
@@ -140,8 +190,34 @@ class QueryService:
                 retrieval_options=request.options,
                 retrieval_mode_requested=request.retrieval_mode,
                 retrieval_mode_used=_resolve_retrieval_mode_used(request.retrieval_mode, web_results),
+                answer_mode_requested=request.answer_mode,
+                answer_mode_used=request.answer_mode,
                 local_retrieval_weak=_is_local_retrieval_weak(primary_chunks),
                 web_used=bool(web_results),
+                evidence_types_used=evidence_types_used,
+                inference_used=inference_used,
+                citation_labels=tuple(citation_labels),
+                web_query_used=alignment.query if alignment else "",
+                web_query_strategy=alignment.strategy if alignment else WebQueryStrategy.RAW_QUESTION,
+                web_results_filtered_count=alignment.filtered_count if alignment else 0,
+                web_alignment_warning=alignment.warning if alignment else "",
+                web_attempts=attempts,
+                web_failure_reason=_summarize_web_failure_reason(attempts),
+                web_provider_returned_results=any(attempt.provider_returned_results for attempt in attempts),
+                web_results_discarded_by_filter=any(
+                    attempt.results_discarded_by_filter for attempt in attempts
+                ),
+                web_retry_used=any(attempt.retry_used for attempt in attempts),
+                hallucination_guard_warnings=tuple(
+                    _build_guard_warnings(
+                        answer_result=answer_result,
+                        web_results=web_results,
+                        answer_mode=request.answer_mode,
+                        local_retrieval_weak=_is_local_retrieval_weak(primary_chunks),
+                        web_alignment=alignment,
+                        web_attempts=attempts,
+                    )
+                ),
             ),
         )
 
@@ -165,7 +241,7 @@ class QueryService:
             return existing_response.with_saved_path(saved_path)
         return QueryResponse(
             answer_result=answer_result,
-            warnings=_build_warnings(answer_result, web_results=[]),
+            warnings=_build_warnings(answer_result, web_results=[], answer_mode=AnswerMode.BALANCED),
             linked_context_chunks=[
                 chunk for chunk in answer_result.retrieved_chunks if chunk.metadata.get("linked_context")
             ],
@@ -181,19 +257,156 @@ class QueryService:
         primary_chunks: list[RetrievedChunk],
         retrieval_mode: RetrievalMode,
         web_search_service: WebSearchService,
+        web_alignment_service: WebAlignmentService,
     ) -> tuple[list[WebSearchResult], list[str]]:
         should_use_web = _should_use_web_search(retrieval_mode, primary_chunks)
         if not should_use_web:
+            self._last_web_alignment = None
+            self._last_web_attempts = []
             return [], []
+        attempts: list[WebSearchAttemptInfo] = []
 
+        first_query, first_strategy, _ = web_alignment_service.build_query(
+            question,
+            primary_chunks=primary_chunks,
+            retrieval_mode=retrieval_mode,
+            provider=self.config.web_search_provider,
+        )
+        first_results, first_warnings, first_alignment, first_attempt = self._perform_web_attempt(
+            question=question,
+            query=first_query,
+            strategy=first_strategy,
+            primary_chunks=primary_chunks,
+            retrieval_mode=retrieval_mode,
+            web_search_service=web_search_service,
+            web_alignment_service=web_alignment_service,
+            retry_used=False,
+        )
+        attempts.append(first_attempt)
+
+        if first_results:
+            self._last_web_alignment = first_alignment
+            self._last_web_attempts = attempts
+            return first_results, first_warnings
+
+        retry_query, retry_strategy, _ = web_alignment_service.build_retry_query(
+            question,
+            primary_chunks=primary_chunks,
+            provider=self.config.web_search_provider,
+        )
+        retry_needed = (
+            retry_query != first_query
+            and first_attempt.failure_reason in {
+                "provider_returned_no_results",
+                "provider_returned_no_usable_results",
+            }
+        )
+        if not retry_needed:
+            self._last_web_alignment = first_alignment
+            self._last_web_attempts = attempts
+            return [], first_warnings
+
+        retry_results, retry_warnings, retry_alignment, retry_attempt = self._perform_web_attempt(
+            question=question,
+            query=retry_query,
+            strategy=retry_strategy,
+            primary_chunks=primary_chunks,
+            retrieval_mode=retrieval_mode,
+            web_search_service=web_search_service,
+            web_alignment_service=web_alignment_service,
+            retry_used=True,
+        )
+        attempts.append(retry_attempt)
+        self._last_web_alignment = retry_alignment or first_alignment
+        self._last_web_attempts = attempts
+
+        if retry_results:
+            return retry_results, retry_warnings
+
+        combined_warnings = first_warnings + retry_warnings
+        if retry_attempt.failure_reason:
+            combined_warnings.append(
+                "A lighter retry query was attempted but still produced no usable aligned web evidence."
+            )
+        return [], list(dict.fromkeys(combined_warnings))
+
+    def _perform_web_attempt(
+        self,
+        *,
+        question: str,
+        query: str,
+        strategy: WebQueryStrategy,
+        primary_chunks: list[RetrievedChunk],
+        retrieval_mode: RetrievalMode,
+        web_search_service: WebSearchService,
+        web_alignment_service: WebAlignmentService,
+        retry_used: bool,
+    ) -> tuple[list[WebSearchResult], list[str], WebAlignmentResult | None, WebSearchAttemptInfo]:
+        warnings: list[str] = []
         try:
-            results = web_search_service.search(question)
+            provider_results = web_search_service.search(query)
         except Exception as exc:
-            return [], [f"Web search was requested but unavailable: {exc}"]
+            return [], [f"Web search was requested but unavailable: {exc}"], None, WebSearchAttemptInfo(
+                query=query,
+                strategy=strategy,
+                retry_used=retry_used,
+                failure_reason="provider_error",
+                outcome="provider_error",
+            )
 
-        if not results:
-            return [], ["Web search did not return any useful external results."]
-        return results, []
+        alignment = web_alignment_service.build_alignment(
+            question,
+            primary_chunks=primary_chunks,
+            web_results=provider_results,
+            retrieval_mode=retrieval_mode,
+            provider=self.config.web_search_provider,
+        )
+        filtered_results = alignment.filtered_results
+        filtered_count = alignment.filtered_count
+        provider_returned_results = bool(provider_results)
+        if alignment.warning:
+            warnings.append(alignment.warning)
+
+        if not provider_results:
+            warnings.append(_no_web_results_warning(strategy, retry_used))
+            return [], warnings, alignment, WebSearchAttemptInfo(
+                query=query,
+                strategy=strategy,
+                retry_used=retry_used,
+                provider_returned_results=False,
+                provider_result_count=0,
+                usable_result_count=0,
+                filtered_count=0,
+                failure_reason="provider_returned_no_results",
+                outcome="no_provider_results",
+            )
+
+        if not filtered_results:
+            warnings.append(_filtered_out_warning(strategy, retry_used))
+            return [], warnings, alignment, WebSearchAttemptInfo(
+                query=query,
+                strategy=strategy,
+                retry_used=retry_used,
+                provider_returned_results=provider_returned_results,
+                provider_result_count=len(provider_results),
+                usable_result_count=0,
+                filtered_count=filtered_count,
+                results_discarded_by_filter=True,
+                failure_reason="all_results_filtered_out",
+                outcome="filtered_out",
+            )
+
+        return filtered_results, warnings, alignment, WebSearchAttemptInfo(
+            query=query,
+            strategy=strategy,
+            retry_used=retry_used,
+            provider_returned_results=provider_returned_results,
+            provider_result_count=len(provider_results),
+            usable_result_count=len(filtered_results),
+            filtered_count=filtered_count,
+            results_discarded_by_filter=filtered_count > 0,
+            outcome="usable_results",
+        )
 
 
 def _build_answer_result(
@@ -201,40 +414,42 @@ def _build_answer_result(
     chunks: list[RetrievedChunk],
     chat_client: OllamaChatClient,
     *,
+    prompt_service: PromptService,
     web_results: list[WebSearchResult] | None = None,
-    retrieval_mode: str = "local_only",
+    retrieval_mode: RetrievalMode = RetrievalMode.LOCAL_ONLY,
+    answer_mode: AnswerMode = AnswerMode.BALANCED,
+    local_retrieval_weak: bool = False,
+    web_alignment: WebAlignmentResult | None = None,
 ) -> AnswerResult:
     web_results = web_results or []
     if not chunks and not web_results:
         return AnswerResult(
-            answer="No relevant local note context or external web evidence matched the current retrieval mode.",
+            answer=_insufficient_evidence_message(answer_mode),
             sources=[],
             retrieved_chunks=[],
         )
 
-    answer = chat_client.answer_question(
+    if answer_mode == AnswerMode.STRICT and local_retrieval_weak and not web_results:
+        citation_sources, _ = build_citation_sources(chunks, web_results)
+        answer = _insufficient_evidence_message(answer_mode)
+        if citation_sources:
+            answer = f"{answer}\n\nAvailable evidence:\n" + "\n".join(citation_sources)
+        return AnswerResult(answer=answer, sources=citation_sources, retrieved_chunks=chunks)
+
+    prompt_payload = prompt_service.build_prompt_payload(
         question,
         chunks,
-        web_results=web_results,
+        web_results=web_results or [],
         retrieval_mode=retrieval_mode,
+        answer_mode=answer_mode,
+        local_retrieval_weak=local_retrieval_weak,
+        web_query_used=web_alignment.query if web_alignment else question,
+        web_query_strategy=web_alignment.strategy.value if web_alignment else "raw_question",
+        web_alignment_note=web_alignment.warning if web_alignment else "",
     )
-    seen_sources: set[str] = set()
-    sources: list[str] = []
-    for chunk in chunks:
-        source = (
-            f"[Local] {chunk.metadata.get('note_title', 'Untitled')} "
-            f"({chunk.metadata.get('source_path', 'unknown')})"
-        )
-        if source in seen_sources:
-            continue
-        seen_sources.add(source)
-        sources.append(source)
-    for result in web_results:
-        source = f"[Web] {result.title} ({result.url})"
-        if source in seen_sources:
-            continue
-        seen_sources.add(source)
-        sources.append(source)
+    answer = chat_client.answer_with_prompt(prompt_payload)
+    answer = enforce_citation_summary(answer, prompt_payload.citation_labels, answer_mode)
+    sources, _ = build_citation_sources(chunks, web_results)
 
     return AnswerResult(answer=answer, sources=sources, retrieved_chunks=chunks)
 
@@ -243,10 +458,11 @@ def _build_warnings(
     answer_result: AnswerResult,
     *,
     web_results: list[WebSearchResult],
+    answer_mode: AnswerMode,
 ) -> list[str]:
     warnings: list[str] = []
     if not answer_result.retrieved_chunks and not web_results:
-        warnings.append("No relevant local note context or external web evidence was retrieved.")
+        warnings.append(_insufficient_evidence_message(answer_mode))
         return warnings
 
     if not answer_result.retrieved_chunks and web_results:
@@ -274,6 +490,64 @@ def _build_warnings(
             warnings.append("Retrieval may be weak; the closest chunk distance is relatively high.")
 
     return warnings
+
+
+def _build_guard_warnings(
+    *,
+    answer_result: AnswerResult,
+    web_results: list[WebSearchResult],
+    answer_mode: AnswerMode,
+    local_retrieval_weak: bool,
+    web_alignment: WebAlignmentResult | None,
+    web_attempts: list[WebSearchAttemptInfo],
+) -> list[str]:
+    warnings: list[str] = []
+    if answer_mode == AnswerMode.STRICT and local_retrieval_weak and not web_results:
+        warnings.append("Strict mode limited the answer because the available evidence was weak.")
+    if web_results and not answer_result.retrieved_chunks:
+        warnings.append("This answer is based on external web evidence rather than local notes.")
+    if web_results and answer_result.retrieved_chunks:
+        warnings.append("This answer combines local notes with external web evidence; sources are labeled separately.")
+    if web_alignment and web_alignment.strategy.value == "local_guided" and web_alignment.query:
+        warnings.append("Hybrid web search was guided by the strongest local note topics.")
+    if local_retrieval_weak and web_attempts and not web_results:
+        warnings.append("Local retrieval was weak, and web search still did not produce usable aligned evidence.")
+    return warnings
+
+
+def _no_web_results_warning(strategy: WebQueryStrategy, retry_used: bool) -> str:
+    if retry_used:
+        return "The lighter retry web query returned no provider results."
+    if strategy == WebQueryStrategy.LOCAL_GUIDED:
+        return "The local-guided web query returned no provider results."
+    return "The web query returned no provider results."
+
+
+def _filtered_out_warning(strategy: WebQueryStrategy, retry_used: bool) -> str:
+    if retry_used:
+        return "The lighter retry web query returned results, but they were filtered out as off-topic."
+    if strategy == WebQueryStrategy.LOCAL_GUIDED:
+        return "The local-guided web query returned results, but they were filtered out as off-topic."
+    return "The web query returned results, but they were filtered out as off-topic."
+
+
+def _summarize_web_failure_reason(web_attempts: list[WebSearchAttemptInfo]) -> str:
+    if not web_attempts:
+        return ""
+    last_attempt = web_attempts[-1]
+    if last_attempt.failure_reason == "provider_error":
+        return "provider_error"
+    if last_attempt.failure_reason == "all_results_filtered_out":
+        return "all_results_filtered_out"
+    if last_attempt.failure_reason == "provider_returned_no_results":
+        return "provider_returned_no_results"
+    return ""
+
+
+def _insufficient_evidence_message(answer_mode: AnswerMode) -> str:
+    if answer_mode == AnswerMode.STRICT:
+        return "Insufficient evidence to answer confidently from the retrieved sources."
+    return "No relevant local note context or external web evidence matched the current retrieval mode."
 
 
 def _should_use_web_search(retrieval_mode: RetrievalMode, primary_chunks: list[RetrievedChunk]) -> bool:

@@ -84,7 +84,7 @@ class Phase4CLITests(unittest.TestCase):
             with patch("main.load_config", return_value=config), patch(
                 "main.Retriever.retrieve", return_value=retrieved
             ), patch(
-                "main.OllamaChatClient.answer_question",
+                "main.OllamaChatClient.answer_with_prompt",
                 return_value="Grounded answer",
             ), patch(
                 "main.prompt_to_save"
@@ -120,7 +120,7 @@ class Phase4CLITests(unittest.TestCase):
             with patch("main.load_config", return_value=config), patch(
                 "main.Retriever.retrieve", return_value=retrieved
             ), patch(
-                "main.OllamaChatClient.answer_question",
+                "main.OllamaChatClient.answer_with_prompt",
                 return_value="Grounded answer",
             ), patch(
                 "main.prompt_to_save"

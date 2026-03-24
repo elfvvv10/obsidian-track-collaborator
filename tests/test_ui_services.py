@@ -54,7 +54,7 @@ class UIFacingServiceTests(unittest.TestCase):
                 "services.query_service.OllamaEmbeddingClient.embed_text",
                 return_value=[1.0, 0.0],
             ), patch(
-                "services.query_service.OllamaChatClient.answer_question",
+                "services.query_service.OllamaChatClient.answer_with_prompt",
                 return_value="Grounded answer",
             ):
                 response = QueryService(config).ask(
@@ -64,11 +64,17 @@ class UIFacingServiceTests(unittest.TestCase):
                     )
                 )
 
-            self.assertEqual(response.answer, "Grounded answer")
+            self.assertIn("Grounded answer", response.answer)
+            self.assertIn("Evidence used: [Local 1]", response.answer)
             self.assertEqual(len(response.debug.initial_candidates), 1)
             self.assertEqual(len(response.debug.primary_chunks), 1)
             self.assertTrue(response.debug.reranking_applied)
             self.assertEqual(len(response.retrieved_chunks), 1)
+            self.assertEqual(response.debug.web_query_strategy.value, "raw_question")
+            self.assertEqual(response.debug.web_results_filtered_count, 0)
+            self.assertEqual(response.debug.web_failure_reason, "")
+            self.assertEqual(response.debug.web_attempts, [])
+            self.assertFalse(response.debug.web_retry_used)
 
     def test_query_service_save_preserves_existing_evidence_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

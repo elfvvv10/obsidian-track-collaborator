@@ -15,6 +15,8 @@ A local-first Python Obsidian RAG assistant that runs through a CLI or a lightwe
 - Detects Obsidian note links and can optionally include linked-note context
 - Supports an improved saved-note template and optional auto-save
 - Generates grounded answers with a local Ollama chat model
+- Supports answer modes for stricter or more exploratory answer behavior
+- Labels local sources, web sources, and inference more explicitly
 - Shows source note references in the terminal
 - Includes a lightweight local Streamlit UI for asking questions, indexing, and debugging
 - Supports optional external web search as a separate evidence path
@@ -64,12 +66,14 @@ Core modules:
 - `services/index_service.py`: shared indexing/build flow for CLI and UI
 - `services/query_service.py`: shared query + answer flow for CLI and UI
 - `services/web_search_service.py`: optional external search orchestration
+- `services/web_alignment_service.py`: local-guided web query building and off-topic result filtering
 - `services/ingestion_service.py`: shared external content ingestion orchestration
 - `services/models.py`: structured request/response models for service consumers
 - `services/common.py`: shared service helpers such as link resolution and index checks
 - `services/ingestion_helpers.py`: shared note-building and collision-safe save helpers for imported content
 - `services/webpage_ingestion_service.py`: webpage fetch, text extraction, and note creation
 - `services/youtube_ingestion_service.py`: YouTube transcript retrieval and note creation
+- `services/prompt_service.py`: answer-mode prompt policies, citation labels, and inference guidance
 - `streamlit_app.py`: lightweight local UI
 - `vault_loader.py`: Markdown vault scanning
 - `chunker.py`: configurable Markdown-aware and sentence-aware chunk creation
@@ -239,6 +243,8 @@ python main.py ask "What do my notes say about AI agents?" --auto-save
 python main.py ask "What do my notes say about AI agents?" --top-k 2 --candidate-count 6 --rerank
 python main.py ask "What happened in AI this week?" --retrieval-mode auto
 python main.py ask "Summarize local notes and web context for local models" --retrieval-mode hybrid
+python main.py ask "What do my notes say about AI agents?" --answer-mode strict
+python main.py ask "Compare my notes with recent external context" --retrieval-mode hybrid --answer-mode exploratory
 ```
 
 The app will:
@@ -257,6 +263,26 @@ The app will:
 
 When web search is used, local note sources and web sources are labeled separately in both the CLI and UI.
 The default provider is now Wikipedia search because it is a more reliable no-key option than the previous DuckDuckGo-only path.
+When local note evidence exists in `hybrid` mode, the app now narrows the web query using the strongest local note topics and filters out clearly off-topic web results before prompting.
+For the default Wikipedia provider, broad hybrid prompts are rewritten into more concrete topic-oriented web queries so the external lookup behaves more like a topical reference search.
+If that first local-guided web query returns no provider results, the app makes one lighter retry using the strongest local title or heading anchor before giving up on web evidence.
+Warnings now distinguish between provider failures, zero provider results, and results that were discarded as off-topic.
+
+### Answer Modes
+
+- `strict`: use only retrieved evidence, prefer refusal when support is missing, and enforce the strongest citation discipline.
+- `balanced`: evidence first, with limited reasoning to connect supported ideas. If the answer goes beyond direct evidence, it should be labeled with `[Inference]`.
+- `exploratory`: evidence plus broader synthesis and extrapolation, with inference explicitly labeled using `[Inference]`.
+
+Answer mode controls how the model is allowed to write the answer. Retrieval mode controls which evidence sources are available in the first place.
+
+### Source Labels and Inference
+
+- `[Local 1]`, `[Local 2]`, and so on refer to your Obsidian notes.
+- `[Web 1]`, `[Web 2]`, and so on refer to external web results.
+- `[Inference]` marks model synthesis that goes beyond directly retrieved evidence.
+
+If the model does not include citation labels in the generated text, the app adds a short evidence summary so the used sources are still explicit.
 
 ## Ingest Webpages
 
@@ -311,8 +337,9 @@ streamlit run streamlit_app.py
 
 The UI includes four main areas:
 
-- `Sidebar`: query filters and retrieval controls such as folder, path text, tag, top-k, reranking, linked-note expansion, auto-save, and retrieval mode
+- `Sidebar`: query filters and retrieval controls such as folder, path text, tag, top-k, reranking, linked-note expansion, auto-save, retrieval mode, and answer mode
 - `Ask`: question input, answer display, separate local/web sources, save actions, linked-note context, and an optional debug view of retrieval stages
+- `Ask`: when web search is attempted, the UI can also show the actual web query used, whether a retry was attempted, and a brief explanation when no web sources were included
 - `Ingest`: paste a webpage URL or YouTube URL, save it into the vault, and optionally trigger indexing right away
 - `Index`: readiness messages plus build and rebuild actions
 - `Settings / Debug`: active models, paths, app readiness, index compatibility, and the debug toggle
@@ -472,6 +499,12 @@ Fix:
 - Verify `WEB_SEARCH_API_URL` if you overrode the default
 - Retry in `local_only` mode if you want to stay fully local
 
+If web search was attempted but no web sources were used, check the warning details:
+
+- the provider may have returned no results for the guided query
+- returned results may have been discarded because they did not align with the strongest local note topics
+- a lighter retry may already have been attempted automatically
+
 ### Webpage ingestion fails
 
 Symptom:
@@ -534,6 +567,9 @@ This can happen after retrieval-relevant schema changes such as new metadata fie
 - Web search is optional and external, so its availability and result quality depend on the configured provider
 - The default provider is Wikipedia search, which is more reliable than the previous DuckDuckGo-only approach but is still narrower than a full general web search engine
 - External web evidence is kept separate from local notes, but answer quality still depends on prompt quality and source quality
+- In `hybrid` and weak-`auto` cases, web search is intentionally conservative and may return no web evidence if aligned results cannot be found
+- Hallucination guards are lightweight and rule-based; they reduce unsupported answers but are not a full verification system
+- Citation enforcement is prompt- and formatting-based rather than a strict post-hoc fact checker
 - Webpage ingestion uses lightweight HTML extraction, so some pages with heavy JavaScript rendering or aggressive boilerplate may not import cleanly
 - YouTube ingestion depends on transcript availability and will not work well for videos without transcripts
 - Automated tests are strong locally, but live Ollama behavior is still mostly verified manually

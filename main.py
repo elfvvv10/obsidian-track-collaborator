@@ -14,7 +14,7 @@ from saver import prompt_to_save, save_answer
 from services.common import build_note_alias_map, ensure_index_compatible, resolve_note_links
 from services.ingestion_service import IngestionService
 from services.index_service import IndexService
-from services.models import IngestionRequest, QueryRequest, RetrievalMode
+from services.models import AnswerMode, IngestionRequest, QueryRequest, RetrievalMode
 from services.query_service import QueryService
 from services.web_search_service import WebSearchService
 from utils import Note
@@ -53,6 +53,7 @@ def main() -> int:
                 rerank=args.rerank,
                 auto_save=args.auto_save,
                 retrieval_mode=args.retrieval_mode,
+                answer_mode=args.answer_mode,
             )
         elif args.command == "ingest-webpage":
             run_ingest_webpage(
@@ -143,6 +144,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=RetrievalMode.LOCAL_ONLY.value,
         help="Choose whether to use only local notes, automatic web fallback, or hybrid local+web retrieval.",
     )
+    ask_parser.add_argument(
+        "--answer-mode",
+        choices=[mode.value for mode in AnswerMode],
+        default=AnswerMode.BALANCED.value,
+        help="Choose strict evidence-bound answers, balanced evidence-first answers, or exploratory synthesis.",
+    )
     ingest_parser.add_argument("url", help="Webpage URL to ingest into the vault")
     ingest_parser.add_argument("--title", help="Optional title override for the saved note")
     ingest_parser.add_argument(
@@ -179,6 +186,7 @@ def run_ask(
     rerank: bool = False,
     auto_save: bool = False,
     retrieval_mode: str = "local_only",
+    answer_mode: str = "balanced",
 ) -> None:
     """Answer a question from the indexed vault."""
     if top_k is not None and top_k < 1:
@@ -218,6 +226,7 @@ def run_ask(
         options=options,
         auto_save=False,
         retrieval_mode=retrieval_mode,
+        answer_mode=answer_mode,
     )
 
     response = query_service.ask(request)

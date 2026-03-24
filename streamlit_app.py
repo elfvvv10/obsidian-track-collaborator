@@ -9,7 +9,7 @@ import streamlit as st
 from config import AppConfig, load_config
 from services.ingestion_service import IngestionService
 from services.index_service import IndexService
-from services.models import IngestionRequest, IndexResponse, QueryRequest, QueryResponse, RetrievalMode
+from services.models import AnswerMode, IngestionRequest, IndexResponse, QueryRequest, QueryResponse, RetrievalMode
 from services.query_service import QueryService
 from utils import RetrievalFilters, RetrievalOptions
 
@@ -113,6 +113,16 @@ def _render_sidebar(config: AppConfig, status: IndexResponse | None, status_erro
             index=[mode.value for mode in RetrievalMode].index(st.session_state["retrieval_mode"]),
             help="Choose local-only, automatic web fallback, or always-on hybrid web use.",
         )
+        st.session_state["answer_mode"] = st.selectbox(
+            "Answer mode",
+            options=[mode.value for mode in AnswerMode],
+            index=[mode.value for mode in AnswerMode].index(st.session_state["answer_mode"]),
+            help=(
+                "Strict: retrieved evidence only. "
+                "Balanced: evidence first with limited reasoning. "
+                "Exploratory: evidence plus broader synthesis and labeled inference."
+            ),
+        )
 
         st.divider()
         st.subheader("App Readiness")
@@ -188,6 +198,7 @@ def _render_ask_tab(
                     auto_save=st.session_state["auto_save"],
                     save_title=st.session_state["save_title"].strip() or None,
                     retrieval_mode=st.session_state["retrieval_mode"],
+                    answer_mode=st.session_state["answer_mode"],
                 )
                 response = query_service.ask(request)
                 st.session_state["last_query_response"] = response
@@ -203,6 +214,14 @@ def _render_ask_tab(
     for warning in response.warnings:
         st.warning(warning)
 
+    with st.expander("Answer Mode and Evidence Guide", expanded=False):
+        st.write("Strict — Retrieved evidence only; says when evidence is missing.")
+        st.write("Balanced — Evidence first, limited model reasoning.")
+        st.write("Exploratory — Evidence plus broader synthesis and labeled inference.")
+        st.write("Local = your Obsidian notes.")
+        st.write("Web = external search results.")
+        st.write("Inference = model synthesis beyond directly retrieved evidence.")
+
     if response.web_used and response.debug.retrieval_mode_requested == "auto":
         if response.debug.local_retrieval_weak and response.debug.primary_chunks:
             st.info(
@@ -212,6 +231,30 @@ def _render_ask_tab(
             st.info(
                 "Web fallback was used because no strong local note context was available."
             )
+    if response.debug.web_query_strategy.value == "local_guided" and response.web_used:
+        st.info("External web search was narrowed using the strongest local note topics.")
+    if response.debug.web_alignment_warning:
+        st.info(response.debug.web_alignment_warning)
+    if response.debug.web_attempts:
+        st.caption(f"Web query used: {response.debug.web_query_used}")
+    if response.debug.web_retry_used:
+        st.info("A lighter retry web query was attempted after the first web-search attempt failed.")
+    if not response.web_used and response.debug.web_failure_reason:
+        st.warning(
+            "No web sources were used. "
+            + {
+                "provider_returned_no_results": "The provider returned no results for the attempted web query.",
+                "all_results_filtered_out": "Returned web results were discarded because they did not align with the local topic.",
+                "provider_error": "The web-search provider could not be reached successfully.",
+            }.get(response.debug.web_failure_reason, "No usable web evidence was found.")
+        )
+
+    status_cols = st.columns(5)
+    status_cols[0].metric("Answer mode", response.answer_mode_used.value)
+    status_cols[1].metric("Retrieval mode", str(response.debug.retrieval_mode_used))
+    status_cols[2].metric("Local notes used", "Yes" if response.local_sources else "No")
+    status_cols[3].metric("Web used", "Yes" if response.web_used else "No")
+    status_cols[4].metric("Inference used", "Yes" if response.inference_used else "No")
 
     summary_col, sources_col = st.columns([3, 2])
     with summary_col:
@@ -388,11 +431,45 @@ def _render_debug_section(response: QueryResponse) -> None:
                 },
                 "retrieval_mode_requested": response.debug.retrieval_mode_requested,
                 "retrieval_mode_used": response.debug.retrieval_mode_used,
+                "answer_mode_requested": response.debug.answer_mode_requested,
+                "answer_mode_used": response.debug.answer_mode_used,
                 "web_used": response.debug.web_used,
                 "local_retrieval_weak": response.debug.local_retrieval_weak,
                 "reranking_applied": response.debug.reranking_applied,
+                "evidence_types_used": list(response.debug.evidence_types_used),
+                "inference_used": response.debug.inference_used,
+                "citation_labels": list(response.debug.citation_labels),
+                "web_query_used": response.debug.web_query_used,
+                "web_query_strategy": response.debug.web_query_strategy,
+                "web_results_filtered_count": response.debug.web_results_filtered_count,
+                "web_alignment_warning": response.debug.web_alignment_warning,
+                "web_failure_reason": response.debug.web_failure_reason,
+                "web_provider_returned_results": response.debug.web_provider_returned_results,
+                "web_results_discarded_by_filter": response.debug.web_results_discarded_by_filter,
+                "web_retry_used": response.debug.web_retry_used,
+                "hallucination_guard_warnings": list(response.debug.hallucination_guard_warnings),
             }
         )
+        st.markdown("**Web Search Attempts**")
+        if not response.debug.web_attempts:
+            st.caption("None")
+        else:
+            for index, attempt in enumerate(response.debug.web_attempts, start=1):
+                st.json(
+                    {
+                        "attempt": index,
+                        "query": attempt.query,
+                        "strategy": attempt.strategy,
+                        "retry_used": attempt.retry_used,
+                        "provider_returned_results": attempt.provider_returned_results,
+                        "provider_result_count": attempt.provider_result_count,
+                        "usable_result_count": attempt.usable_result_count,
+                        "filtered_count": attempt.filtered_count,
+                        "results_discarded_by_filter": attempt.results_discarded_by_filter,
+                        "failure_reason": attempt.failure_reason,
+                        "outcome": attempt.outcome,
+                    }
+                )
 
         _render_chunk_list("Initial Retrieval Candidates", response.debug.initial_candidates)
         _render_chunk_list("Primary Selected Local Chunks", response.debug.primary_chunks)
@@ -518,6 +595,7 @@ def _render_settings_tab(config: AppConfig, status: IndexResponse | None, status
         "Query filters and retrieval controls live in the sidebar so they stay close to the Ask workflow."
     )
     st.write(f"Current retrieval mode: `{st.session_state['retrieval_mode']}`")
+    st.write(f"Current answer mode: `{st.session_state['answer_mode']}`")
 
 
 def _current_filters() -> RetrievalFilters:
@@ -548,6 +626,7 @@ def _init_session_state(config: AppConfig) -> None:
         "include_linked": config.enable_linked_note_expansion,
         "auto_save": config.auto_save_answer,
         "retrieval_mode": RetrievalMode.LOCAL_ONLY.value,
+        "answer_mode": AnswerMode.BALANCED.value,
         "debug_mode": False,
         "last_query_response": None,
         "last_question": "",

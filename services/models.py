@@ -43,6 +43,52 @@ class RetrievalModeUsed(StrEnum):
     HYBRID_NO_WEB_RESULTS = "hybrid_no_web_results"
 
 
+class WebQueryStrategy(StrEnum):
+    """How the external web query was derived."""
+
+    RAW_QUESTION = "raw_question"
+    LOCAL_GUIDED = "local_guided"
+
+
+@dataclass(slots=True)
+class WebSearchAttemptInfo:
+    """A single external web-search attempt and its outcome."""
+
+    query: str
+    strategy: WebQueryStrategy
+    retry_used: bool = False
+    provider_returned_results: bool = False
+    provider_result_count: int = 0
+    usable_result_count: int = 0
+    filtered_count: int = 0
+    results_discarded_by_filter: bool = False
+    failure_reason: str = ""
+    outcome: str = "not_attempted"
+
+
+class AnswerMode(StrEnum):
+    """Supported answer-generation modes."""
+
+    STRICT = "strict"
+    BALANCED = "balanced"
+    EXPLORATORY = "exploratory"
+
+    @classmethod
+    def coerce(cls, value: "AnswerMode | str | None") -> "AnswerMode":
+        if isinstance(value, cls):
+            return value
+        if value is None:
+            return cls.BALANCED
+        normalized = str(value).strip().lower()
+        for mode in cls:
+            if mode.value == normalized:
+                return mode
+        raise ValueError(
+            f"Unsupported answer mode: {value}. Expected one of: "
+            f"{', '.join(mode.value for mode in cls)}."
+        )
+
+
 @dataclass(slots=True)
 class QueryRequest:
     """Structured request for answering a question."""
@@ -53,9 +99,11 @@ class QueryRequest:
     auto_save: bool = False
     save_title: str | None = None
     retrieval_mode: RetrievalMode = RetrievalMode.LOCAL_ONLY
+    answer_mode: AnswerMode = AnswerMode.BALANCED
 
     def __post_init__(self) -> None:
         self.retrieval_mode = RetrievalMode.coerce(self.retrieval_mode)
+        self.answer_mode = AnswerMode.coerce(self.answer_mode)
 
 
 @dataclass(slots=True)
@@ -70,8 +118,23 @@ class QueryDebugInfo:
     retrieval_options: RetrievalOptions = field(default_factory=RetrievalOptions)
     retrieval_mode_requested: RetrievalMode = RetrievalMode.LOCAL_ONLY
     retrieval_mode_used: RetrievalModeUsed = RetrievalModeUsed.LOCAL_ONLY
+    answer_mode_requested: AnswerMode = AnswerMode.BALANCED
+    answer_mode_used: AnswerMode = AnswerMode.BALANCED
     local_retrieval_weak: bool = False
     web_used: bool = False
+    evidence_types_used: tuple[str, ...] = ()
+    inference_used: bool = False
+    citation_labels: tuple[str, ...] = ()
+    hallucination_guard_warnings: tuple[str, ...] = ()
+    web_query_used: str = ""
+    web_query_strategy: WebQueryStrategy = WebQueryStrategy.RAW_QUESTION
+    web_results_filtered_count: int = 0
+    web_alignment_warning: str = ""
+    web_attempts: list[WebSearchAttemptInfo] = field(default_factory=list)
+    web_failure_reason: str = ""
+    web_provider_returned_results: bool = False
+    web_results_discarded_by_filter: bool = False
+    web_retry_used: bool = False
 
 
 @dataclass(slots=True)
@@ -106,12 +169,24 @@ class QueryResponse:
         return bool(self.web_results)
 
     @property
+    def answer_mode_used(self) -> AnswerMode:
+        return self.debug.answer_mode_used
+
+    @property
+    def inference_used(self) -> bool:
+        return self.debug.inference_used
+
+    @property
+    def evidence_types_used(self) -> tuple[str, ...]:
+        return self.debug.evidence_types_used
+
+    @property
     def local_sources(self) -> list[str]:
-        return [source for source in self.answer_result.sources if source.startswith("[Local]")]
+        return [source for source in self.answer_result.sources if source.startswith("[Local")]
 
     @property
     def web_sources(self) -> list[str]:
-        return [source for source in self.answer_result.sources if source.startswith("[Web]")]
+        return [source for source in self.answer_result.sources if source.startswith("[Web")]
 
     def with_saved_path(self, saved_path: Path) -> "QueryResponse":
         """Return a copy with the saved path filled in while preserving evidence state."""

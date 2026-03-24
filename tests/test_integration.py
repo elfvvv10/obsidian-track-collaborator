@@ -47,6 +47,10 @@ class StubChatClient:
         titles = ", ".join(str(chunk.metadata.get("note_title")) for chunk in chunks)
         return f"Used: {titles}"
 
+    def answer_with_prompt(self, prompt_payload) -> str:
+        titles = ", ".join(prompt_payload.citation_labels)
+        return f"Used: {titles}"
+
 
 class IntegrationTests(unittest.TestCase):
     def test_end_to_end_index_and_answer_flow_uses_expected_sources(self) -> None:

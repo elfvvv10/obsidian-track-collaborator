@@ -47,7 +47,7 @@ class Phase5WebSearchTests(unittest.TestCase):
 
         self.assertEqual(tracking["web_calls"], 0)
         self.assertFalse(response.web_used)
-        self.assertTrue(all(source.startswith("[Local]") for source in response.sources))
+        self.assertTrue(all(source.startswith("[Local") for source in response.sources))
 
     def test_auto_mode_falls_back_to_web_for_weak_local_results(self) -> None:
         service, tracking = make_query_service(
@@ -58,7 +58,7 @@ class Phase5WebSearchTests(unittest.TestCase):
                     distance_or_score=0.92,
                 )
             ],
-            web_results=[WebSearchResult(title="External", url="https://example.com", snippet="External info")],
+            web_results=[WebSearchResult(title="Agents Update", url="https://example.com", snippet="External agents info")],
         )
 
         response = service.ask(QueryRequest(question="agents?", retrieval_mode="auto"))
@@ -80,15 +80,157 @@ class Phase5WebSearchTests(unittest.TestCase):
                     distance_or_score=0.05,
                 )
             ],
-            web_results=[WebSearchResult(title="External", url="https://example.com", snippet="External info")],
+            web_results=[WebSearchResult(title="Agents Update", url="https://example.com", snippet="External agents info")],
         )
 
         response = service.ask(QueryRequest(question="agents?", retrieval_mode="hybrid"))
 
         self.assertEqual(tracking["web_calls"], 1)
         self.assertTrue(response.web_used)
-        self.assertIn("[Local] Agents (agents.md)", response.sources)
-        self.assertIn("[Web] External (https://example.com)", response.sources)
+        self.assertIn("[Local 1] Agents (agents.md)", response.sources)
+        self.assertIn("[Web 1] Agents Update (https://example.com)", response.sources)
+
+    def test_hybrid_mode_uses_local_guided_web_query(self) -> None:
+        service, tracking = make_query_service(
+            local_chunks=[
+                RetrievedChunk(
+                    text="Strong local note",
+                    metadata={
+                        "note_title": "Local AI Agents",
+                        "source_path": "agents.md",
+                        "heading_context": "Tool Use",
+                        "tags_serialized": "ai|agents|tools",
+                    },
+                    distance_or_score=0.05,
+                )
+            ],
+            web_results=[WebSearchResult(title="External", url="https://example.com", snippet="Agents tools update")],
+        )
+
+        response = service.ask(QueryRequest(question="Compare my notes with recent external context", retrieval_mode="hybrid"))
+
+        self.assertEqual(tracking["web_calls"], 1)
+        self.assertNotEqual(tracking["queries"][0], "Compare my notes with recent external context")
+        self.assertIn("agents", tracking["queries"][0].lower())
+        self.assertEqual(response.debug.web_query_strategy.value, "local_guided")
+        self.assertEqual(response.debug.web_query_used, tracking["queries"][0])
+        self.assertTrue(
+            tracking["queries"][0].lower().startswith("local ai agents")
+            or tracking["queries"][0].lower().startswith("ai agents")
+        )
+
+    def test_wikipedia_guided_query_prefers_concrete_topic_wording(self) -> None:
+        service, tracking = make_query_service(
+            local_chunks=[
+                RetrievedChunk(
+                    text="Strong local note",
+                    metadata={
+                        "note_title": "Local LLMs",
+                        "source_path": "local_llms.md",
+                        "heading_context": "Quantization",
+                    },
+                    distance_or_score=0.05,
+                )
+            ],
+            web_results=[WebSearchResult(title="External", url="https://example.com", snippet="Local LLM update")],
+        )
+
+        response = service.ask(
+            QueryRequest(
+                question="Compare my notes with recent external context",
+                retrieval_mode="hybrid",
+            )
+        )
+
+        self.assertEqual(tracking["web_calls"], 1)
+        self.assertEqual(response.debug.web_query_strategy.value, "local_guided")
+        self.assertEqual(tracking["queries"][0], "local llms recent developments")
+
+    def test_auto_mode_uses_local_guided_query_when_falling_back_from_weak_local(self) -> None:
+        service, tracking = make_query_service(
+            local_chunks=[
+                RetrievedChunk(
+                    text="Weak local note",
+                    metadata={"note_title": "Local Agents", "source_path": "agents.md"},
+                    distance_or_score=0.91,
+                )
+            ],
+            web_results=[WebSearchResult(title="External", url="https://example.com", snippet="Agents update")],
+        )
+
+        response = service.ask(QueryRequest(question="recent context", retrieval_mode="auto"))
+
+        self.assertEqual(tracking["web_calls"], 1)
+        self.assertIn("agents", tracking["queries"][0].lower())
+        self.assertEqual(response.debug.web_query_strategy.value, "local_guided")
+
+    def test_irrelevant_web_results_are_filtered_out(self) -> None:
+        service, tracking = make_query_service(
+            local_chunks=[
+                RetrievedChunk(
+                    text="Strong local note",
+                    metadata={"note_title": "AI Agents", "source_path": "agents.md"},
+                    distance_or_score=0.05,
+                )
+            ],
+            web_results=[WebSearchResult(title="Gardening", url="https://example.com/garden", snippet="Tomatoes and soil")],
+        )
+
+        response = service.ask(QueryRequest(question="agents?", retrieval_mode="hybrid"))
+
+        self.assertEqual(tracking["web_calls"], 1)
+        self.assertFalse(response.web_used)
+        self.assertEqual(response.debug.web_results_filtered_count, 1)
+        self.assertIn("discarded", response.debug.web_alignment_warning.lower())
+        self.assertTrue(any("discarded" in warning.lower() for warning in response.warnings))
+
+    def test_guided_query_zero_results_triggers_one_retry(self) -> None:
+        def web_search_fn(query: str, tracking: dict[str, object]) -> list[WebSearchResult]:
+            if len(tracking["queries"]) == 1:
+                return []
+            return [WebSearchResult(title="Agents Update", url="https://example.com", snippet="External agents info")]
+
+        service, tracking = make_query_service(
+            local_chunks=[
+                RetrievedChunk(
+                    text="Strong local note",
+                    metadata={"note_title": "AI Agents", "source_path": "agents.md"},
+                    distance_or_score=0.05,
+                )
+            ],
+            web_results=[],
+            web_search_fn=web_search_fn,
+        )
+
+        response = service.ask(QueryRequest(question="recent context", retrieval_mode="hybrid"))
+
+        self.assertEqual(tracking["web_calls"], 2)
+        self.assertTrue(response.web_used)
+        self.assertTrue(response.debug.web_retry_used)
+        self.assertEqual(len(response.debug.web_attempts), 2)
+        self.assertEqual(response.debug.web_attempts[0].failure_reason, "provider_returned_no_results")
+        self.assertEqual(response.debug.web_attempts[1].outcome, "usable_results")
+        self.assertEqual(tracking["queries"][1], "ai agents")
+
+    def test_provider_failure_stays_distinct_from_zero_results(self) -> None:
+        service, tracking = make_query_service(
+            local_chunks=[
+                RetrievedChunk(
+                    text="Strong local note",
+                    metadata={"note_title": "Agents", "source_path": "agents.md"},
+                    distance_or_score=0.05,
+                )
+            ],
+            web_results=[],
+            web_error=RuntimeError("search offline"),
+        )
+
+        response = service.ask(QueryRequest(question="agents?", retrieval_mode="hybrid"))
+
+        self.assertEqual(tracking["web_calls"], 1)
+        self.assertEqual(response.debug.web_failure_reason, "provider_error")
+        self.assertFalse(response.debug.web_provider_returned_results)
+        self.assertFalse(response.debug.web_retry_used)
 
     def test_web_failures_surface_as_warnings_without_breaking_local_answer(self) -> None:
         service, tracking = make_query_service(
@@ -106,7 +248,8 @@ class Phase5WebSearchTests(unittest.TestCase):
         response = service.ask(QueryRequest(question="agents?", retrieval_mode="hybrid"))
 
         self.assertEqual(tracking["web_calls"], 1)
-        self.assertEqual(response.answer, "Answer using 1 local and 0 web")
+        self.assertIn("Answer using 1 local and 0 web", response.answer)
+        self.assertIn("Evidence used: [Local 1]", response.answer)
         self.assertTrue(any("Web search was requested but unavailable" in warning for warning in response.warnings))
         self.assertFalse(response.web_used)
 
@@ -119,7 +262,7 @@ class Phase5WebSearchTests(unittest.TestCase):
             response = QueryResponse(
                 answer_result=AnswerResult(
                     answer="Grounded answer",
-                    sources=["[Local] Agents (agents.md)"],
+                    sources=["[Local 1] Agents (agents.md)"],
                     retrieved_chunks=[
                         RetrievedChunk(
                             text="Agent note content",
@@ -275,8 +418,9 @@ def make_query_service(
     local_chunks: list[RetrievedChunk],
     web_results: list[WebSearchResult],
     web_error: Exception | None = None,
+    web_search_fn=None,
 ) -> tuple[QueryService, dict[str, int]]:
-    tracking = {"web_calls": 0}
+    tracking = {"web_calls": 0, "queries": []}
 
     class StubEmbeddingClient:
         def __init__(self, config: AppConfig) -> None:
@@ -286,8 +430,10 @@ def make_query_service(
         def __init__(self, config: AppConfig) -> None:
             pass
 
-        def answer_question(self, question: str, chunks, *, web_results=None, retrieval_mode="local_only") -> str:
-            return f"Answer using {len(chunks)} local and {len(web_results or [])} web"
+        def answer_with_prompt(self, prompt_payload) -> str:
+            local_count = sum(1 for label in prompt_payload.citation_labels if label.startswith("[Local"))
+            web_count = sum(1 for label in prompt_payload.citation_labels if label.startswith("[Web"))
+            return f"Answer using {local_count} local and {web_count} web"
 
     class StubRetriever:
         def __init__(self, config: AppConfig, embedding_client, vector_store) -> None:
@@ -312,8 +458,11 @@ def make_query_service(
 
         def search(self, query: str) -> list[WebSearchResult]:
             tracking["web_calls"] += 1
+            tracking["queries"].append(query)
             if web_error is not None:
                 raise web_error
+            if web_search_fn is not None:
+                return list(web_search_fn(query, tracking))
             return list(web_results)
     root = Path(tempfile.mkdtemp())
     (root / "vault").mkdir()
