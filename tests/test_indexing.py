@@ -131,6 +131,49 @@ class IncrementalIndexingTests(unittest.TestCase):
             self.assertEqual(store.requested_top_k, 3)
             self.assertEqual(len(results), 2)
 
+    def test_arrangement_chunks_preserve_metadata_in_vector_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            config = make_config(root)
+            store = VectorStore(config)
+            store.reset()
+
+            from chunker import chunk_notes
+            from utils import Note
+
+            note = Note(
+                path="Track Context/My Track/arrangement.md",
+                title="My Track Arrangement",
+                content=(
+                    "# Arrangement Overview\n\n"
+                    "## Global Notes\n"
+                    "- Goal: stronger second drop\n\n"
+                    "# Sections\n\n"
+                    "## S1 - Intro\n"
+                    "Bars: 1-8\n"
+                    "Energy: 2\n"
+                    "Purpose: establish groove\n"
+                ),
+                frontmatter={
+                    "type": "track_arrangement",
+                    "track_name": "My Track",
+                    "genre": "progressive_house",
+                    "arrangement_version": 1,
+                },
+                source_type="track_arrangement",
+            )
+            chunks = chunk_notes([note], chunk_size=400, overlap=40)
+            store.upsert_chunks(chunks, [[1.0, 0.0] for _ in chunks])
+
+            results = store.get_all_chunks()
+            arrangement_rows = [metadata for _, metadata, _ in results if metadata.get("source_type") == "track_arrangement"]
+
+            self.assertTrue(arrangement_rows)
+            self.assertTrue(any(row.get("arrangement_track_name") == "My Track" for row in arrangement_rows))
+            self.assertTrue(any(row.get("arrangement_section_id") == "S1" for row in arrangement_rows))
+
     def test_retriever_reranks_when_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

@@ -73,7 +73,7 @@ class UIFacingServiceTests(unittest.TestCase):
                 )
 
             self.assertIn("Grounded answer", response.answer)
-            self.assertIn("Evidence used: [Local 1]", response.answer)
+            self.assertIn("Evidence used: [Ref 1]", response.answer)
             self.assertEqual(len(response.debug.initial_candidates), 1)
             self.assertEqual(len(response.debug.primary_chunks), 1)
             self.assertTrue(response.debug.reranking_applied)

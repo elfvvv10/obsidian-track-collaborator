@@ -9,7 +9,7 @@ from config import AppConfig
 from utils import Chunk, RetrievalFilters, RetrievedChunk
 
 
-INDEX_SCHEMA_VERSION = "2026-obsidian-rag-schema-3"
+INDEX_SCHEMA_VERSION = "2026-obsidian-rag-schema-4"
 SAVED_ANSWER_DISTANCE_PENALTY = 0.12
 
 
@@ -53,6 +53,14 @@ class VectorStore:
                     "content_scope": chunk.content_scope,
                     "content_category": chunk.content_category,
                     "import_genre": chunk.import_genre,
+                    "arrangement_track_name": chunk.arrangement_track_name,
+                    "arrangement_genre": chunk.arrangement_genre,
+                    "arrangement_section_id": chunk.arrangement_section_id,
+                    "arrangement_section_name": chunk.arrangement_section_name,
+                    "arrangement_energy": (
+                        chunk.arrangement_energy if chunk.arrangement_energy is not None else ""
+                    ),
+                    "arrangement_version": chunk.arrangement_version,
                     "tags_serialized": _serialize_tags(chunk.tags),
                     "linked_note_keys_serialized": _serialize_values(chunk.linked_note_keys),
                 }

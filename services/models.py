@@ -223,6 +223,61 @@ class TrackContext:
 
 
 @dataclass(slots=True)
+class ArrangementLayerState:
+    """A single layer state inside an arrangement section."""
+
+    layer: str
+    state: str
+    notes: str | None = None
+
+
+@dataclass(slots=True)
+class ArrangementSectionIndexEntry:
+    """A lightweight row from the arrangement section index."""
+
+    id: str
+    name: str
+    bars: str | None = None
+    start_bar: int | None = None
+    end_bar: int | None = None
+    energy: int | None = None
+    themes: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ArrangementSection:
+    """A parsed arrangement section with musical state and problems."""
+
+    id: str
+    name: str
+    bars_text: str | None = None
+    start_bar: int | None = None
+    end_bar: int | None = None
+    energy: int | None = None
+    purpose: str | None = None
+    themes: list[str] = field(default_factory=list)
+    active_layers: list[ArrangementLayerState] = field(default_factory=list)
+    transitions: list[str] = field(default_factory=list)
+    issues: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ArrangementDocument:
+    """A parsed track arrangement document from markdown."""
+
+    track_name: str | None = None
+    genre: str | None = None
+    bpm: int | None = None
+    key: str | None = None
+    status: str | None = None
+    reference_tracks: list[str] = field(default_factory=list)
+    arrangement_version: int | str | None = None
+    global_notes: list[str] = field(default_factory=list)
+    section_index: list[ArrangementSectionIndexEntry] = field(default_factory=list)
+    sections: list[ArrangementSection] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class QueryRequest:
     """Structured request for answering a question."""
 

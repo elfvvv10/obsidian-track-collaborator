@@ -20,7 +20,7 @@ def load_notes(vault_path: Path, excluded_paths: list[Path] | None = None) -> li
         if not content.strip():
             continue
 
-        title = _extract_title(file_path, content)
+        title = _extract_title(file_path, content, frontmatter)
         tags = extract_tags(frontmatter, content)
         links = extract_obsidian_links(content)
         notes.append(
@@ -64,7 +64,11 @@ def _read_text(file_path: Path) -> str:
         return file_path.read_text(encoding="utf-8", errors="ignore")
 
 
-def _extract_title(file_path: Path, content: str) -> str:
+def _extract_title(file_path: Path, content: str, frontmatter: dict[str, object]) -> str:
+    if str(frontmatter.get("type", "")).strip().lower() == "track_arrangement":
+        track_name = str(frontmatter.get("track_name", "")).strip()
+        if track_name:
+            return f"{track_name} Arrangement"
     for line in content.splitlines():
         stripped = line.strip()
         if stripped.startswith("#"):
@@ -83,4 +87,6 @@ def _infer_source_kind(frontmatter: dict[str, object]) -> str:
 
 def _infer_source_type(frontmatter: dict[str, object]) -> str:
     source_type = str(frontmatter.get("source_type", "")).strip().lower()
+    if not source_type and str(frontmatter.get("type", "")).strip().lower() == "track_arrangement":
+        return "track_arrangement"
     return source_type or "note"

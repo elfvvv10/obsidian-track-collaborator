@@ -102,6 +102,12 @@ class Chunk:
     content_scope: str = "extended"
     content_category: str = "non_curated_note"
     import_genre: str = ""
+    arrangement_track_name: str = ""
+    arrangement_genre: str = ""
+    arrangement_section_id: str = ""
+    arrangement_section_name: str = ""
+    arrangement_energy: int | None = None
+    arrangement_version: str = ""
 
 
 @dataclass(slots=True)

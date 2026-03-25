@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Projects/Current Tracks/Moonlit Driver/track_context.md",
+                "file": "Templates/track_arrangement_template.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "track_context"
+              "title": "track_arrangement_template"
             }
           }
         ]
@@ -180,8 +180,11 @@
       "bases:Create new base": false
     }
   },
-  "active": "6283c1982745da4f",
+  "active": "9f8e7cc1c223ba7c",
   "lastOpenFiles": [
+    "Knowledge/Arrangement/progressive_house_arrangement.md",
+    "Knowledge/Arrangement/tripchain_arrangement.md",
+    "Projects/Current Tracks/Moonlit Driver/track_context.md",
     "Sources/README.md",
     "Drafts",
     "Templates/Frameworks/track_critique_framework_v1.md",
@@ -207,8 +210,6 @@
     "Saved Outputs/answers/General Asks/2026-03-24-bassline-ideas-answer.md",
     "Saved Outputs/answers/General Asks/2026-03-24-please-give-me-some-ideas-on-creating-pr-answer.md",
     "Saved Outputs/answers/General Asks/2026-03-25-please-share-some-ideas-for-creating-a-p-answer-2.md",
-    "Saved Outputs/answers/General Asks/2026-03-25-please-share-some-ideas-for-creating-a-p-answer-3.md",
-    "Saved Outputs/answers/General Asks/2026-03-25-please-share-some-ideas-for-creating-a-p-answer.md",
     "Saved Outputs/critiques/Track Concept Critiques",
     "Saved Outputs/critiques/Genre Fit Reviews",
     "Saved Outputs/critiques",

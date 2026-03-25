@@ -74,6 +74,24 @@ class VaultLoaderTests(unittest.TestCase):
             self.assertEqual(notes[0].frontmatter, {"category": "research", "tags": ["ai", "agents"]})
             self.assertEqual(notes[0].tags, ("ai", "agents", "local-rag"))
 
+    def test_load_notes_marks_track_arrangement_from_frontmatter_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            vault = Path(tmp_dir)
+            (vault / "arrangement.md").write_text(
+                "---\n"
+                "type: track_arrangement\n"
+                "track_name: Moonlit Driver\n"
+                "---\n\n"
+                "# Arrangement Overview\n\n"
+                "Arrangement content.\n",
+                encoding="utf-8",
+            )
+
+            notes = load_notes(vault)
+
+            self.assertEqual(notes[0].source_type, "track_arrangement")
+            self.assertEqual(notes[0].title, "Moonlit Driver Arrangement")
+
     def test_load_notes_extracts_obsidian_links(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             vault = Path(tmp_dir)
@@ -136,6 +154,20 @@ class ChunkerTests(unittest.TestCase):
         self.assertGreaterEqual(len(chunks), 2)
         self.assertEqual(chunks[0].heading_context, "Agents")
         self.assertTrue(any("Agents use tools effectively." in chunk.text for chunk in chunks))
+
+    def test_non_arrangement_notes_still_use_standard_chunking(self) -> None:
+        note = Note(
+            path="notes/agents.md",
+            title="Agents",
+            content="# Agents\n\nIntro.\n\n## Retrieval\n\nGrounded retrieval.\n",
+            frontmatter={"type": "note"},
+        )
+
+        chunks = chunk_notes([note], chunk_size=120, overlap=20)
+
+        self.assertGreaterEqual(len(chunks), 1)
+        self.assertTrue(all(chunk.arrangement_section_id == "" for chunk in chunks))
+        self.assertIn("Retrieval", {chunk.heading_context for chunk in chunks})
 
 
 if __name__ == "__main__":

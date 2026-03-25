@@ -286,6 +286,7 @@ def build_citation_sources(
     seen_sources: set[str] = set()
 
     local_index = 1
+    reference_index = 1
     saved_index = 1
     import_index = 1
     for chunk in chunks:
@@ -298,12 +299,16 @@ def build_citation_sources(
         seen_sources.add(key)
         is_saved = _is_saved_answer_chunk(chunk)
         is_import = _is_imported_chunk(chunk)
+        is_reference = _is_reference_chunk(chunk)
         if is_saved:
             label = f"[Saved {saved_index}]"
             saved_index += 1
         elif is_import:
             label = f"[Import {import_index}]"
             import_index += 1
+        elif is_reference:
+            label = f"[Ref {reference_index}]"
+            reference_index += 1
         else:
             label = f"[Local {local_index}]"
             local_index += 1
@@ -677,6 +682,7 @@ def _format_local_context(chunks: list[RetrievedChunk]) -> str:
         return "No relevant local note context was retrieved."
     parts: list[str] = []
     local_index = 1
+    reference_index = 1
     saved_index = 1
     import_index = 1
     for chunk in chunks:
@@ -684,10 +690,16 @@ def _format_local_context(chunks: list[RetrievedChunk]) -> str:
         source_path = chunk.metadata.get("source_path", "unknown")
         heading_context = chunk.metadata.get("heading_context", "")
         section_line = f" | Section: {heading_context}" if heading_context else ""
+        arrangement_track_name = str(chunk.metadata.get("arrangement_track_name", "")).strip()
+        arrangement_section_name = str(chunk.metadata.get("arrangement_section_name", "")).strip()
         if _is_saved_answer_chunk(chunk):
             source_kind = "Saved answer"
         elif _is_imported_chunk(chunk):
-            source_kind = "Imported content"
+            source_kind = "Imported reference evidence"
+        elif _is_arrangement_chunk(chunk):
+            source_kind = "Arrangement reference"
+        elif _is_reference_chunk(chunk):
+            source_kind = "Reference evidence"
         else:
             source_kind = "Primary note"
         if chunk.metadata.get("linked_context"):
@@ -700,14 +712,26 @@ def _format_local_context(chunks: list[RetrievedChunk]) -> str:
         elif _is_imported_chunk(chunk):
             label = f"[Import {import_index}]"
             import_index += 1
+        elif _is_reference_chunk(chunk):
+            label = f"[Ref {reference_index}]"
+            reference_index += 1
         else:
             label = f"[Local {local_index}]"
             local_index += 1
+        arrangement_lines = []
+        if arrangement_track_name:
+            arrangement_lines.append(f"Arrangement Track: {arrangement_track_name}")
+        if arrangement_section_name and arrangement_section_name.lower() != "arrangement overview":
+            arrangement_lines.append(f"Arrangement Section: {arrangement_section_name}")
+        arrangement_block = "\n".join(arrangement_lines)
+        if arrangement_block:
+            arrangement_block = f"{arrangement_block}\n"
         parts.append(
             f"{label}\n"
             f"Type: {context_kind}\n"
             f"Title: {title}{section_line}\n"
             f"Path: {source_path}\n"
+            f"{arrangement_block}"
             f"Content:\n{chunk.text}"
         )
     return "\n\n".join(parts)
@@ -753,3 +777,15 @@ def _is_saved_answer_chunk(chunk: RetrievedChunk) -> bool:
 
 def _is_imported_chunk(chunk: RetrievedChunk) -> bool:
     return str(chunk.metadata.get("source_kind", "")).strip().lower() == "imported_content"
+
+
+def _is_arrangement_chunk(chunk: RetrievedChunk) -> bool:
+    return str(chunk.metadata.get("source_type", "")).strip().lower() == "track_arrangement"
+
+
+def _is_reference_chunk(chunk: RetrievedChunk) -> bool:
+    content_category = str(chunk.metadata.get("content_category", "")).strip().lower()
+    content_scope = str(chunk.metadata.get("content_scope", "")).strip().lower()
+    if content_category == "curated_knowledge":
+        return True
+    return content_scope == "knowledge" and not _is_imported_chunk(chunk) and not _is_saved_answer_chunk(chunk)

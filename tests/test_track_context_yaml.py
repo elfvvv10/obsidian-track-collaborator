@@ -154,6 +154,91 @@ class TrackContextPromptTests(unittest.TestCase):
             self.assertNotIn("Legacy Markdown Title", payload.system_prompt)
             self.assertEqual(payload.system_prompt.count("BEGIN INTERNAL TRACK CONTEXT"), 1)
 
+    def test_arrangement_chunks_are_labeled_as_reference_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            payload = PromptService(make_config(root)).build_prompt_payload(
+                "How can I improve my arrangement?",
+                [
+                    RetrievedChunk(
+                        text="Kick stays partial and energy remains restrained.",
+                        metadata={
+                            "note_title": "Tripchain Arrangement",
+                            "source_path": "Knowledge/Arrangement/Tripchain.md",
+                            "source_type": "track_arrangement",
+                            "heading_context": "S1 - Intro",
+                            "arrangement_track_name": "Tripchain",
+                            "arrangement_section_name": "Intro",
+                        },
+                    )
+                ],
+                web_results=[],
+                retrieval_mode=RetrievalMode.LOCAL_ONLY,
+                answer_mode=AnswerMode.BALANCED,
+                local_retrieval_weak=False,
+            )
+
+            self.assertIn("Type: Arrangement reference", payload.user_prompt)
+            self.assertIn("Arrangement Track: Tripchain", payload.user_prompt)
+            self.assertIn("Arrangement Section: Intro", payload.user_prompt)
+
+    def test_curated_knowledge_chunks_are_labeled_as_reference_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            payload = PromptService(make_config(root)).build_prompt_payload(
+                "What does this reference note suggest?",
+                [
+                    RetrievedChunk(
+                        text="Progressive house benefits from long-form tension arcs.",
+                        metadata={
+                            "note_title": "Arrangement Principles",
+                            "source_path": "Knowledge/Arrangement/Principles.md",
+                            "content_scope": "knowledge",
+                            "content_category": "curated_knowledge",
+                        },
+                    )
+                ],
+                web_results=[],
+                retrieval_mode=RetrievalMode.LOCAL_ONLY,
+                answer_mode=AnswerMode.BALANCED,
+                local_retrieval_weak=False,
+            )
+
+            self.assertIn("Type: Reference evidence", payload.user_prompt)
+            self.assertIn("[Ref 1] Arrangement Principles (Knowledge/Arrangement/Principles.md)", payload.user_prompt)
+
+    def test_imported_chunks_are_labeled_as_imported_reference_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            payload = PromptService(make_config(root)).build_prompt_payload(
+                "What does this import say?",
+                [
+                    RetrievedChunk(
+                        text="The breakdown expands with filtered hats and vocal atmosphere.",
+                        metadata={
+                            "note_title": "Imported Breakdown Notes",
+                            "source_path": "Imports/Web Imports/Progressive House/example.md",
+                            "source_kind": "imported_content",
+                            "content_scope": "knowledge",
+                            "content_category": "imported_knowledge",
+                        },
+                    )
+                ],
+                web_results=[],
+                retrieval_mode=RetrievalMode.LOCAL_ONLY,
+                answer_mode=AnswerMode.BALANCED,
+                local_retrieval_weak=False,
+            )
+
+            self.assertIn("Type: Imported reference evidence", payload.user_prompt)
+            self.assertIn("[Import 1] Imported Breakdown Notes (Imports/Web Imports/Progressive House/example.md)", payload.user_prompt)
+
     def test_yaml_track_context_is_not_used_without_flag_and_track_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
