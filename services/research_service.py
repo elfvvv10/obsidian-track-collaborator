@@ -7,7 +7,7 @@ import re
 from config import AppConfig
 from llm import OllamaChatClient
 from model_clients import ChatModelClient
-from model_provider import create_chat_client
+from model_provider import configured_chat_model, create_chat_client, effective_chat_provider
 from saver import save_answer
 from services.music_workflow_service import MusicWorkflowService
 from services.models import (
@@ -54,6 +54,7 @@ class ResearchService:
         prompt_service = self.prompt_service_cls(self.config)
         chat_client = create_chat_client(
             self.config,
+            provider_override=request.chat_provider_override,
             model_override=request.chat_model_override,
             client_cls=self.chat_client_cls,
         )
@@ -88,6 +89,7 @@ class ResearchService:
                     track_id=request.track_id,
                     use_track_context=request.use_track_context,
                     track_context=track_context,
+                    chat_provider_override=request.chat_provider_override,
                     chat_model_override=request.chat_model_override,
                 )
             )
@@ -130,7 +132,18 @@ class ResearchService:
             warnings=warnings,
             saved_path=saved_path,
             planning_notes=planning_notes,
-            active_chat_model=getattr(chat_client, "model", self.config.ollama_chat_model),
+            active_chat_model=getattr(
+                chat_client,
+                "model",
+                configured_chat_model(
+                    self.config,
+                    provider_override=request.chat_provider_override,
+                ),
+            ),
+            active_chat_provider=effective_chat_provider(
+                self.config,
+                provider_override=request.chat_provider_override,
+            ),
             domain_profile=request.domain_profile,
             collaboration_workflow=request.collaboration_workflow,
             workflow_input=request.workflow_input,
@@ -180,6 +193,9 @@ class ResearchService:
             steps=[],
             answer_result=answer_result,
             saved_path=saved_path,
+            active_chat_provider=(
+                existing_response.active_chat_provider if existing_response is not None else ""
+            ),
             active_chat_model=(
                 existing_response.active_chat_model if existing_response is not None else ""
             ),

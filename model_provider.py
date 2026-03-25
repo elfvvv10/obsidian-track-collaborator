@@ -18,6 +18,7 @@ EmbeddingClientType = TypeVar("EmbeddingClientType", bound=EmbeddingClient)
 def create_chat_client(
     config: AppConfig,
     *,
+    provider_override: str | None = None,
     model_override: str | None = None,
     client_cls: type[ChatClientType] | None = None,
 ) -> ChatModelClient:
@@ -34,12 +35,12 @@ def create_chat_client(
                 setattr(client, "model", model_override)
             return client
 
-    provider = config.chat_provider.strip().lower()
+    provider = effective_chat_provider(config, provider_override=provider_override)
     if provider == "ollama":
         return OllamaChatClient(config, model_override=model_override)
     if provider == "openai":
         return OpenAIChatClient(config, model_override=model_override)
-    raise ValueError(f"Unsupported chat provider: {config.chat_provider}")
+    raise ValueError(f"Unsupported chat provider: {provider_override or config.chat_provider}")
 
 
 def create_embedding_client(
@@ -59,9 +60,13 @@ def create_embedding_client(
     raise ValueError(f"Unsupported embedding provider: {config.embedding_provider}")
 
 
-def list_available_chat_models(config: AppConfig) -> tuple[list[str], str | None]:
+def list_available_chat_models(
+    config: AppConfig,
+    *,
+    provider_override: str | None = None,
+) -> tuple[list[str], str | None]:
     """Best-effort provider-aware helper for chat-model discovery."""
-    provider = config.chat_provider.strip().lower()
+    provider = effective_chat_provider(config, provider_override=provider_override)
     if provider == "ollama":
         try:
             client = OllamaChatClient(config)
@@ -72,7 +77,28 @@ def list_available_chat_models(config: AppConfig) -> tuple[list[str], str | None
         if config.openai_chat_model.strip():
             return [config.openai_chat_model.strip()], None
         return [], "Set OPENAI_CHAT_MODEL to use the OpenAI chat provider."
-    return [], f"Chat model discovery is not implemented for provider '{config.chat_provider}'."
+    return [], f"Chat model discovery is not implemented for provider '{provider}'."
+
+
+def effective_chat_provider(config: AppConfig, provider_override: str | None = None) -> str:
+    """Return the effective chat provider after applying any session/request override."""
+    override = (provider_override or "").strip().lower()
+    if override:
+        return override
+    return config.chat_provider.strip().lower()
+
+
+def configured_chat_model(config: AppConfig, *, provider_override: str | None = None) -> str:
+    """Return the configured default chat model for the active chat provider."""
+    provider = effective_chat_provider(config, provider_override=provider_override)
+    if provider == "openai":
+        return config.openai_chat_model.strip()
+    return config.ollama_chat_model.strip()
+
+
+def configured_embedding_model(config: AppConfig) -> str:
+    """Return the configured default embedding model for the active embedding provider."""
+    return config.ollama_embedding_model.strip()
 
 
 def provider_status(config: AppConfig) -> tuple[bool | None, str]:

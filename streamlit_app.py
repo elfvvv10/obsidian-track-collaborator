@@ -8,7 +8,12 @@ from uuid import uuid4
 import streamlit as st
 
 from config import AppConfig, load_config
-from model_provider import list_available_chat_models
+from model_provider import (
+    configured_chat_model,
+    configured_embedding_model,
+    effective_chat_provider,
+    list_available_chat_models,
+)
 from services.ingestion_service import IngestionService
 from services.index_service import IndexService
 from services.import_genre_service import GENERIC_IMPORT_GENRE, ImportGenreService
@@ -37,9 +42,14 @@ from services.track_selector_service import (
     selected_track_path,
 )
 from services.ui_session_helpers import (
+    DEV_MODE_PRESET_MANUAL,
     critique_support_summary,
     current_track_summary,
+    dev_mode_preset_options,
     debug_query_summary,
+    resolve_dev_mode_preset,
+    synced_dev_mode_preset_selection,
+    synced_chat_provider_selection,
     suggestion_groups,
     track_context_status,
 )
@@ -61,6 +71,8 @@ def main() -> None:
         return
 
     _init_session_state(base_config)
+    _sync_dev_mode_preset_with_session()
+    _sync_active_chat_provider_with_session(base_config)
     _sync_active_chat_model_with_available_models(base_config)
     ui_config = _config_from_session(base_config)
     services = _get_services(ui_config)
@@ -320,8 +332,8 @@ def _render_sidebar(
                 st.caption("Ollama reachability has not been checked yet.")
 
             st.caption(f"Stored chunks: {status.total_chunks_stored}")
-        st.caption(f"Chat provider/model: {config.chat_provider} / {_configured_chat_model(config)}")
-        st.caption(f"Embedding provider/model: {config.embedding_provider} / {_configured_embedding_model(config)}")
+        st.caption(f"Chat provider/model: {config.chat_provider} / {configured_chat_model(config)}")
+        st.caption(f"Embedding provider/model: {config.embedding_provider} / {configured_embedding_model(config)}")
 
 
 def _render_ask_tab(
@@ -372,10 +384,15 @@ def _render_ask_tab(
         st.session_state["session_tasks"] = []
         st.session_state["last_query_response"] = None
         st.session_state["last_question"] = ""
-        default_chat_model = _default_active_chat_model(config)
-        st.session_state["active_chat_model"] = default_chat_model
-        st.session_state["active_chat_model_select"] = default_chat_model
-        st.session_state["active_chat_model_input"] = default_chat_model
+        st.session_state["dev_mode_preset_select"] = DEV_MODE_PRESET_MANUAL
+        st.session_state["dev_mode_preset"] = ""
+        st.session_state["last_synced_dev_mode_preset"] = ""
+        st.session_state["active_chat_provider_select"] = f"Use configured default ({config.chat_provider})"
+        st.session_state["chat_provider_override"] = ""
+        st.session_state["last_synced_chat_provider_override"] = ""
+        st.session_state["active_chat_model_select"] = f"Use configured default ({configured_chat_model(config)})"
+        st.session_state["active_chat_model_input"] = ""
+        st.session_state["chat_model_override"] = ""
         st.session_state["reset_ask_form"] = False
 
     if status is not None:
@@ -392,7 +409,11 @@ def _render_ask_tab(
 
     answer_mount = None
     chat_detail_mount = None
-    available_chat_models, chat_model_discovery_error = list_available_chat_models(config)
+    active_chat_provider = _effective_chat_provider(config)
+    available_chat_models, chat_model_discovery_error = list_available_chat_models(
+        config,
+        provider_override=_session_chat_provider_override() or None,
+    )
     active_track_context = _active_yaml_track_context(query_service)
 
     main_col, control_col = st.columns([3, 1.4], gap="large")
@@ -487,38 +508,123 @@ def _render_ask_tab(
             key="save_title",
             help="Override the saved note title and filename slug.",
         )
-        if available_chat_models:
+        preset_active = bool(_session_dev_mode_preset())
+        st.markdown("#### Dev Mode Preset")
+        st.selectbox(
+            "Session preset",
+            options=dev_mode_preset_options(),
+            key="dev_mode_preset_select",
+            help="Quickly switch chat provider and model together for this session. Embeddings remain Ollama-only.",
+        )
+        if preset_active:
+            st.caption(f"Preset mode is active: `{_session_dev_mode_preset()}`")
+        else:
+            st.caption("Preset mode is off. Provider and model controls below are in manual mode.")
+
+        st.markdown("#### Chat Provider")
+        st.caption(f"Configured default: `{config.chat_provider}`")
+        provider_options = [
+            f"Use configured default ({config.chat_provider})",
+            *_ordered_chat_provider_options(config.chat_provider),
+        ]
+        st.selectbox(
+            "Session chat provider",
+            options=provider_options,
+            key="active_chat_provider_select",
+            help="Optional session-only override for chat generation. Embeddings remain Ollama-based.",
+            disabled=preset_active,
+        )
+
+        st.markdown("#### Chat Model")
+        st.caption(f"Active provider: `{active_chat_provider}`")
+        st.caption(
+            f"Configured default for active provider: `{configured_chat_model(config, provider_override=_session_chat_provider_override() or None) or '(not configured)'}`"
+        )
+        if active_chat_provider == "ollama" and available_chat_models:
             current_model = _resolve_preferred_chat_model_name(
-                st.session_state.get("active_chat_model", _DEFAULT_ACTIVE_CHAT_MODEL),
+                _effective_chat_model(config),
                 available_chat_models,
             )
-            model_options = _dedupe_chat_model_options(available_chat_models)
-            if current_model not in model_options:
-                model_options.insert(0, current_model)
+            model_options = [
+                f"Use configured default ({configured_chat_model(config, provider_override=_session_chat_provider_override() or None)})"
+            ] + _dedupe_chat_model_options(
+                available_chat_models
+            )
+            if current_model not in model_options[1:]:
+                model_options.append(current_model)
             st.selectbox(
-                "Active Chat Model",
+                "Session chat model",
                 options=model_options,
-                index=model_options.index(current_model),
                 key="active_chat_model_select",
-                help="Session-level chat model override for comparing local Ollama models.",
+                help="Use the configured default model or choose a session-only override.",
+                disabled=preset_active,
             )
         else:
             st.text_input(
-                "Active Chat Model",
+                "Session chat model override",
                 key="active_chat_model_input",
-                help="Session-level chat model override when live model discovery is unavailable.",
+                placeholder=configured_chat_model(
+                    config,
+                    provider_override=_session_chat_provider_override() or None,
+                )
+                or "Enter a chat model name",
+                help="Optional session-only override. Leave blank to use the configured default model.",
+                disabled=preset_active,
             )
         workspace_updated = st.button("Update Workspace", use_container_width=True)
+        reset_chat_overrides = st.button("Reset All Chat Overrides", use_container_width=True)
 
         if workspace_updated:
-            selected_chat_model = (
-                st.session_state.get("active_chat_model_select", "").strip()
-                if available_chat_models
-                else st.session_state.get("active_chat_model_input", "").strip()
-            ) or _DEFAULT_ACTIVE_CHAT_MODEL
-            if available_chat_models:
-                selected_chat_model = _resolve_preferred_chat_model_name(selected_chat_model, available_chat_models)
-            st.session_state["active_chat_model"] = selected_chat_model
+            selected_preset = st.session_state.get("dev_mode_preset_select", DEV_MODE_PRESET_MANUAL).strip()
+            st.session_state["dev_mode_preset"] = "" if selected_preset == DEV_MODE_PRESET_MANUAL else selected_preset
+            st.session_state["last_synced_dev_mode_preset"] = st.session_state["dev_mode_preset"]
+            if _session_dev_mode_preset():
+                resolved_preset = resolve_dev_mode_preset(
+                    _session_dev_mode_preset(),
+                    configured_ollama_model=configured_chat_model(config, provider_override="ollama"),
+                    available_ollama_models=_dedupe_chat_model_options(
+                        list_available_chat_models(config, provider_override="ollama")[0]
+                    ),
+                )
+                st.session_state["chat_provider_override"] = resolved_preset[0] if resolved_preset else ""
+                st.session_state["chat_model_override"] = resolved_preset[1] if resolved_preset else ""
+                st.rerun()
+            else:
+                selected_provider_option = st.session_state.get("active_chat_provider_select", "").strip()
+                default_provider_option = f"Use configured default ({config.chat_provider})"
+                previous_provider = _session_chat_provider_override()
+                if not selected_provider_option or selected_provider_option == default_provider_option:
+                    st.session_state["chat_provider_override"] = ""
+                else:
+                    st.session_state["chat_provider_override"] = selected_provider_option
+
+                provider_changed = previous_provider != _session_chat_provider_override()
+                if provider_changed:
+                    st.session_state["chat_model_override"] = ""
+                    st.rerun()
+
+                if _effective_chat_provider(config) == "ollama" and available_chat_models:
+                    selected_option = st.session_state.get("active_chat_model_select", "").strip()
+                    default_option = (
+                        f"Use configured default ({configured_chat_model(config, provider_override=_session_chat_provider_override() or None)})"
+                    )
+                    if not selected_option or selected_option == default_option:
+                        st.session_state["chat_model_override"] = ""
+                    else:
+                        st.session_state["chat_model_override"] = _resolve_preferred_chat_model_name(
+                            selected_option,
+                            available_chat_models,
+                        )
+                else:
+                    st.session_state["chat_model_override"] = st.session_state.get("active_chat_model_input", "").strip()
+
+        if reset_chat_overrides:
+            st.session_state["dev_mode_preset"] = ""
+            st.session_state["last_synced_dev_mode_preset"] = ""
+            st.session_state["chat_provider_override"] = ""
+            st.session_state["chat_model_override"] = ""
+            st.session_state["last_synced_chat_provider_override"] = ""
+            st.rerun()
 
         if st.session_state["retrieval_scope"] == RetrievalScope.KNOWLEDGE.value:
             st.caption(
@@ -528,12 +634,24 @@ def _render_ask_tab(
             st.caption(
                 "Extended searches Knowledge, plus indexed working notes and Saved Outputs."
             )
-        if available_chat_models:
-            st.caption(f"Current session model: `{st.session_state['active_chat_model']}`")
+        if _session_dev_mode_preset():
+            st.caption(f"Active preset: `{_session_dev_mode_preset()}`")
         else:
-            st.caption(f"Current session model: `{st.session_state['active_chat_model']}`")
-            if chat_model_discovery_error:
-                st.caption(f"Model discovery unavailable: {chat_model_discovery_error}")
+            st.caption("Active preset: `manual`")
+        if _session_chat_provider_override().strip():
+            st.caption(
+                f"Using session override provider: `{_effective_chat_provider(config)}`. Embeddings still use `{config.embedding_provider}`."
+            )
+        else:
+            st.caption(f"Using configured default chat provider: `{config.chat_provider}`")
+        if _session_chat_model_override().strip():
+            st.caption(f"Using session override model: `{_effective_chat_model(config)}`")
+        else:
+            st.caption(
+                f"Using configured default model: `{configured_chat_model(config, provider_override=_session_chat_provider_override() or None) or _DEFAULT_ACTIVE_CHAT_MODEL}`"
+            )
+        if chat_model_discovery_error:
+            st.caption(f"Model discovery unavailable: {chat_model_discovery_error}")
 
         if st.button("Reset Session", use_container_width=True):
             clear_clicked = True
@@ -639,7 +757,8 @@ def _render_ask_tab(
                     workflow_input=_current_workflow_input(),
                     track_id=st.session_state["track_context_track_id"].strip() or None,
                     use_track_context=st.session_state["use_track_context"],
-                    chat_model_override=st.session_state["active_chat_model"],
+                    chat_provider_override=_session_chat_provider_override() or None,
+                    chat_model_override=_session_chat_model_override() or None,
                     recent_conversation=_recent_conversation_for_prompt(
                         chat_messages[:-1] if chat_workspace_enabled else [],
                         st.session_state["collaboration_workflow"],
@@ -664,6 +783,7 @@ def _render_ask_tab(
                             workflow_input=request.workflow_input,
                             track_id=request.track_id,
                             use_track_context=request.use_track_context,
+                            chat_provider_override=request.chat_provider_override,
                             chat_model_override=request.chat_model_override,
                             max_subquestions=st.session_state["max_subquestions"],
                         )
@@ -701,7 +821,7 @@ def _render_ask_tab(
         st.markdown("### Latest Answer")
         with st.container(border=True):
             st.caption(
-                f"Active chat model: `{response.debug.active_chat_model or st.session_state['active_chat_model']}`"
+                f"Active chat provider/model: `{response.debug.active_chat_provider or _effective_chat_provider(config)}` / `{response.debug.active_chat_model or _effective_chat_model(config)}`"
             )
             st.write(response.answer)
             if response.track_context_suggestions is not None and response.track_context is not None:
@@ -1350,15 +1470,39 @@ def _show_index_result(title: str, response: IndexResponse) -> None:
 
 
 def _render_settings_tab(config: AppConfig, status: IndexResponse | None, status_error: str | None) -> None:
-    available_chat_models, _ = list_available_chat_models(config)
-    active_chat_model = _resolve_preferred_chat_model_name(
-        st.session_state.get("active_chat_model", _DEFAULT_ACTIVE_CHAT_MODEL),
-        available_chat_models,
+    active_chat_provider = _effective_chat_provider(config)
+    available_chat_models, _ = list_available_chat_models(
+        config,
+        provider_override=_session_chat_provider_override() or None,
+    )
+    active_chat_model = (
+        _resolve_preferred_chat_model_name(_effective_chat_model(config), available_chat_models)
+        if active_chat_provider == "ollama" and available_chat_models
+        else _effective_chat_model(config)
     )
     st.subheader("Active Models")
     model_cols = st.columns(2)
-    model_cols[0].write(f"Chat provider/model: `{config.chat_provider}` / `{active_chat_model}`")
-    model_cols[1].write(f"Embedding provider/model: `{config.embedding_provider}` / `{_configured_embedding_model(config)}`")
+    model_cols[0].write(f"Chat provider/model: `{active_chat_provider}` / `{active_chat_model}`")
+    model_cols[1].write(f"Embedding provider/model: `{config.embedding_provider}` / `{configured_embedding_model(config)}`")
+    if _session_dev_mode_preset():
+        st.caption(f"Active dev preset: `{_session_dev_mode_preset()}`.")
+    else:
+        st.caption("Active dev preset: `manual`.")
+    if _session_chat_provider_override().strip():
+        st.caption(
+            f"Session provider override active. Configured default provider: `{config.chat_provider}`; current provider override: `{_session_chat_provider_override()}`."
+        )
+    else:
+        st.caption(f"No session provider override active. Using configured default chat provider: `{config.chat_provider}`.")
+    if _session_chat_model_override().strip():
+        st.caption(
+            f"Session model override active. Configured default model for `{active_chat_provider}`: `{configured_chat_model(config, provider_override=_session_chat_provider_override() or None) or '(not configured)'}`; current override: `{_session_chat_model_override()}`."
+        )
+    else:
+        st.caption(
+            f"No session model override active. Using configured default chat model for `{active_chat_provider}`: `{configured_chat_model(config, provider_override=_session_chat_provider_override() or None) or '(not configured)'}`."
+        )
+    st.caption("Chat provider/model overrides affect chat generation only. Embeddings remain Ollama-based for now.")
 
     st.subheader("Paths and Status")
     if status is None:
@@ -1613,9 +1757,15 @@ def _init_session_state(config: AppConfig) -> None:
         "path_filter": "",
         "tag_filter": "",
         "save_title": "",
-        "active_chat_model": _default_active_chat_model(config),
+        "dev_mode_preset_select": DEV_MODE_PRESET_MANUAL,
+        "dev_mode_preset": "",
+        "last_synced_dev_mode_preset": "",
+        "active_chat_provider_select": f"Use configured default ({config.chat_provider})",
+        "last_synced_chat_provider_override": "",
         "active_chat_model_select": _default_active_chat_model(config),
-        "active_chat_model_input": _default_active_chat_model(config),
+        "active_chat_model_input": "",
+        "chat_provider_override": "",
+        "chat_model_override": "",
         "top_k": config.top_k_results,
         "enable_reranking": config.enable_reranking,
         "include_linked": config.enable_linked_note_expansion,
@@ -1687,21 +1837,47 @@ def _config_from_session(config: AppConfig) -> AppConfig:
 
 
 def _sync_active_chat_model_with_available_models(config: AppConfig) -> None:
-    available_chat_models, _ = list_available_chat_models(config)
+    active_provider_override = _session_chat_provider_override() or None
+    available_chat_models, _ = list_available_chat_models(
+        config,
+        provider_override=active_provider_override,
+    )
     if not available_chat_models:
-        default_chat_model = _default_active_chat_model(config)
-        st.session_state["active_chat_model"] = st.session_state.get("active_chat_model", default_chat_model) or default_chat_model
-        st.session_state["active_chat_model_select"] = st.session_state.get("active_chat_model_select", default_chat_model) or default_chat_model
-        st.session_state["active_chat_model_input"] = st.session_state.get("active_chat_model_input", default_chat_model) or default_chat_model
+        st.session_state["active_chat_model_input"] = st.session_state.get("chat_model_override", "").strip()
         return
 
-    resolved_model = _resolve_preferred_chat_model_name(
-        st.session_state.get("active_chat_model", _default_active_chat_model(config)),
-        available_chat_models,
+    override_model = st.session_state.get("chat_model_override", "").strip()
+    if override_model:
+        st.session_state["active_chat_model_select"] = _resolve_preferred_chat_model_name(
+            override_model,
+            available_chat_models,
+        )
+    else:
+        st.session_state["active_chat_model_select"] = (
+            f"Use configured default ({configured_chat_model(config, provider_override=active_provider_override)})"
+        )
+    st.session_state["active_chat_model_input"] = override_model
+
+
+def _sync_active_chat_provider_with_session(config: AppConfig) -> None:
+    selection, synced_override = synced_chat_provider_selection(
+        current_selection=st.session_state.get("active_chat_provider_select", ""),
+        committed_override=_session_chat_provider_override(),
+        configured_provider=config.chat_provider,
+        last_synced_override=st.session_state.get("last_synced_chat_provider_override", ""),
     )
-    st.session_state["active_chat_model"] = resolved_model
-    st.session_state["active_chat_model_select"] = resolved_model
-    st.session_state["active_chat_model_input"] = resolved_model
+    st.session_state["active_chat_provider_select"] = selection
+    st.session_state["last_synced_chat_provider_override"] = synced_override
+
+
+def _sync_dev_mode_preset_with_session() -> None:
+    selection, synced_preset = synced_dev_mode_preset_selection(
+        current_selection=st.session_state.get("dev_mode_preset_select", ""),
+        committed_preset=_session_dev_mode_preset(),
+        last_synced_preset=st.session_state.get("last_synced_dev_mode_preset", ""),
+    )
+    st.session_state["dev_mode_preset_select"] = selection
+    st.session_state["last_synced_dev_mode_preset"] = synced_preset
 
 
 _CHAT_TASK_WORKFLOWS = {
@@ -1723,22 +1899,45 @@ _TRACK_CONTEXT_CURRENT_STAGES = [
 ]
 
 def _default_active_chat_model(config: AppConfig) -> str:
-    if config.chat_provider.strip().lower() == "openai":
-        return config.openai_chat_model.strip() or "openai"
+    if _effective_chat_provider(config) == "openai":
+        return configured_chat_model(
+            config,
+            provider_override=_session_chat_provider_override() or None,
+        ) or "openai"
     return _DEFAULT_ACTIVE_CHAT_MODEL
 
 
-def _configured_chat_model(config: AppConfig) -> str:
-    if config.chat_provider.strip().lower() == "openai":
-        return config.openai_chat_model.strip() or "(not configured)"
-    return config.ollama_chat_model
+def _effective_chat_model(config: AppConfig) -> str:
+    return (
+        _session_chat_model_override()
+        or configured_chat_model(config, provider_override=_session_chat_provider_override() or None)
+        or _DEFAULT_ACTIVE_CHAT_MODEL
+    )
 
 
-def _configured_embedding_model(config: AppConfig) -> str:
-    return config.ollama_embedding_model
+def _effective_chat_provider(config: AppConfig) -> str:
+    return effective_chat_provider(config, provider_override=_session_chat_provider_override() or None)
+
+
+def _session_dev_mode_preset() -> str:
+    return st.session_state.get("dev_mode_preset", "").strip()
+
+
+def _session_chat_provider_override() -> str:
+    return st.session_state.get("chat_provider_override", "").strip()
+
+
+def _session_chat_model_override() -> str:
+    return st.session_state.get("chat_model_override", "").strip()
+
+
+def _ordered_chat_provider_options(default_provider: str) -> list[str]:
+    providers = [provider for provider in _CHAT_PROVIDER_OPTIONS if provider != default_provider]
+    return [default_provider, *providers]
 
 
 _DEFAULT_ACTIVE_CHAT_MODEL = "deepseek"
+_CHAT_PROVIDER_OPTIONS = ("openai", "ollama")
 
 
 if __name__ == "__main__":

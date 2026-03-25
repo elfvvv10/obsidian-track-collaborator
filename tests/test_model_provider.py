@@ -9,7 +9,7 @@ from pathlib import Path
 from config import AppConfig
 from embeddings import OllamaEmbeddingClient
 from llm import OllamaChatClient, OpenAIChatClient
-from model_provider import create_chat_client, create_embedding_client
+from model_provider import create_chat_client, create_embedding_client, list_available_chat_models
 
 
 def make_config() -> AppConfig:
@@ -63,3 +63,23 @@ class ModelProviderTests(unittest.TestCase):
         config.openai_chat_model = "gpt-4o-mini"
         with self.assertRaisesRegex(RuntimeError, "OPENAI_API_KEY"):
             create_chat_client(config)
+
+    def test_create_chat_client_honors_provider_override(self) -> None:
+        config = make_config()
+        config.chat_provider = "openai"
+        config.openai_api_key = "test-key"
+        config.openai_chat_model = "gpt-4o-mini"
+
+        client = create_chat_client(config, provider_override="ollama")
+
+        self.assertIsInstance(client, OllamaChatClient)
+
+    def test_list_available_chat_models_honors_provider_override(self) -> None:
+        config = make_config()
+        config.chat_provider = "ollama"
+        config.openai_chat_model = "gpt-4o-mini"
+
+        models, error = list_available_chat_models(config, provider_override="openai")
+
+        self.assertEqual(models, ["gpt-4o-mini"])
+        self.assertIsNone(error)

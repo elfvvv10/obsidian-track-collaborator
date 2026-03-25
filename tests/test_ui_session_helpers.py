@@ -6,9 +6,17 @@ import unittest
 
 from services.models import CollaborationWorkflow, TrackContext, TrackContextSuggestions
 from services.ui_session_helpers import (
+    DEV_MODE_PRESET_FAST,
+    DEV_MODE_PRESET_LOCAL,
+    DEV_MODE_PRESET_MANUAL,
+    DEV_MODE_PRESET_QUALITY,
     critique_support_summary,
     current_track_summary,
+    dev_mode_preset_options,
     debug_query_summary,
+    resolve_dev_mode_preset,
+    synced_dev_mode_preset_selection,
+    synced_chat_provider_selection,
     suggestion_groups,
     track_context_status,
 )
@@ -99,4 +107,88 @@ class UISessionHelpersTests(unittest.TestCase):
                 ("Original question", "help with the bassline"),
                 ("Rewritten retrieval query", "help with the bassline progressive house first drop"),
             ],
+        )
+
+    def test_synced_chat_provider_selection_initializes_from_configured_default(self) -> None:
+        selection, synced = synced_chat_provider_selection(
+            current_selection="",
+            committed_override="",
+            configured_provider="openai",
+            last_synced_override="",
+        )
+
+        self.assertEqual(selection, "Use configured default (openai)")
+        self.assertEqual(synced, "")
+
+    def test_synced_chat_provider_selection_preserves_pending_user_edit(self) -> None:
+        selection, synced = synced_chat_provider_selection(
+            current_selection="ollama",
+            committed_override="",
+            configured_provider="openai",
+            last_synced_override="",
+        )
+
+        self.assertEqual(selection, "ollama")
+        self.assertEqual(synced, "")
+
+    def test_synced_chat_provider_selection_resyncs_when_committed_override_changes(self) -> None:
+        selection, synced = synced_chat_provider_selection(
+            current_selection="openai",
+            committed_override="ollama",
+            configured_provider="openai",
+            last_synced_override="",
+        )
+
+        self.assertEqual(selection, "ollama")
+        self.assertEqual(synced, "ollama")
+
+    def test_dev_mode_preset_options_include_required_presets(self) -> None:
+        self.assertEqual(
+            dev_mode_preset_options(),
+            [
+                DEV_MODE_PRESET_MANUAL,
+                DEV_MODE_PRESET_FAST,
+                DEV_MODE_PRESET_QUALITY,
+                DEV_MODE_PRESET_LOCAL,
+            ],
+        )
+
+    def test_synced_dev_mode_preset_selection_preserves_pending_user_edit(self) -> None:
+        selection, synced = synced_dev_mode_preset_selection(
+            current_selection=DEV_MODE_PRESET_LOCAL,
+            committed_preset="",
+            last_synced_preset="",
+        )
+
+        self.assertEqual(selection, DEV_MODE_PRESET_LOCAL)
+        self.assertEqual(synced, "")
+
+    def test_synced_dev_mode_preset_selection_resyncs_to_committed_preset(self) -> None:
+        selection, synced = synced_dev_mode_preset_selection(
+            current_selection=DEV_MODE_PRESET_MANUAL,
+            committed_preset=DEV_MODE_PRESET_FAST,
+            last_synced_preset="",
+        )
+
+        self.assertEqual(selection, DEV_MODE_PRESET_FAST)
+        self.assertEqual(synced, DEV_MODE_PRESET_FAST)
+
+    def test_resolve_dev_mode_preset_returns_openai_fast_settings(self) -> None:
+        self.assertEqual(
+            resolve_dev_mode_preset(
+                DEV_MODE_PRESET_FAST,
+                configured_ollama_model="deepseek-r1:latest",
+                available_ollama_models=["deepseek-r1:latest"],
+            ),
+            ("openai", "gpt-4.1-mini"),
+        )
+
+    def test_resolve_dev_mode_preset_prefers_configured_ollama_model(self) -> None:
+        self.assertEqual(
+            resolve_dev_mode_preset(
+                DEV_MODE_PRESET_LOCAL,
+                configured_ollama_model="deepseek-r1:latest",
+                available_ollama_models=["llama3.2", "deepseek-r1:latest"],
+            ),
+            ("ollama", "deepseek-r1:latest"),
         )

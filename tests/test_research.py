@@ -121,6 +121,19 @@ class ResearchWorkflowTests(unittest.TestCase):
         self.assertEqual(tracking["last_query_model_override"], "deepseek-r1")
         self.assertEqual(response.active_chat_model, "deepseek-r1")
 
+    def test_research_uses_chat_provider_override_for_planning_and_steps(self) -> None:
+        service, tracking = make_research_service()
+
+        response = service.research(
+            ResearchRequest(
+                goal="Compare my notes on AI agents with recent external context",
+                chat_provider_override="openai",
+            )
+        )
+
+        self.assertEqual(tracking["last_query_provider_override"], "openai")
+        self.assertEqual(response.active_chat_provider, "openai")
+
     def test_research_reuses_same_track_context_instance_for_steps_and_save(self) -> None:
         service, tracking = make_research_service()
 
@@ -147,6 +160,7 @@ def make_research_service(
         "query_calls": 0,
         "last_plan_prompt": "",
         "last_model": "",
+        "last_query_provider_override": "",
         "last_query_model_override": "",
         "last_query_track_context": None,
     }
@@ -175,6 +189,7 @@ def make_research_service(
 
         def ask(self, request):
             tracking["query_calls"] += 1
+            tracking["last_query_provider_override"] = request.chat_provider_override or ""
             tracking["last_query_model_override"] = request.chat_model_override or ""
             tracking["last_query_track_context"] = request.track_context
             weak_distance = 0.95 if all_weak else 0.15

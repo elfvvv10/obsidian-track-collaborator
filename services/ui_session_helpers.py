@@ -6,6 +6,12 @@ from services.models import CollaborationWorkflow, TrackContext, TrackContextSug
 from utils import RetrievedChunk
 
 
+DEV_MODE_PRESET_FAST = "⚡ Fast Dev (Cheap)"
+DEV_MODE_PRESET_QUALITY = "🧠 Quality Check"
+DEV_MODE_PRESET_LOCAL = "🖥 Local (Ollama)"
+DEV_MODE_PRESET_MANUAL = "Manual (Custom)"
+
+
 def current_track_summary(
     track_context: TrackContext | None,
     *,
@@ -138,3 +144,68 @@ def debug_query_summary(original_question: str, rewritten_query: str) -> list[tu
     if rewritten_query.strip():
         rows.append(("Rewritten retrieval query", rewritten_query.strip()))
     return rows
+
+
+def synced_chat_provider_selection(
+    *,
+    current_selection: str,
+    committed_override: str,
+    configured_provider: str,
+    last_synced_override: str,
+) -> tuple[str, str]:
+    """Return the staged provider selection without clobbering in-progress UI edits."""
+    committed_selection = (
+        committed_override
+        if committed_override.strip()
+        else f"Use configured default ({configured_provider})"
+    )
+    if not current_selection.strip() or committed_override.strip() != last_synced_override.strip():
+        return committed_selection, committed_override.strip()
+    return current_selection, last_synced_override.strip()
+
+
+def synced_dev_mode_preset_selection(
+    *,
+    current_selection: str,
+    committed_preset: str,
+    last_synced_preset: str,
+) -> tuple[str, str]:
+    """Return the staged preset selection without clobbering in-progress UI edits."""
+    committed_selection = committed_preset.strip() or DEV_MODE_PRESET_MANUAL
+    if not current_selection.strip() or committed_preset.strip() != last_synced_preset.strip():
+        return committed_selection, committed_preset.strip()
+    return current_selection, last_synced_preset.strip()
+
+
+def dev_mode_preset_options() -> list[str]:
+    """Return the supported dev-mode preset options in display order."""
+    return [
+        DEV_MODE_PRESET_MANUAL,
+        DEV_MODE_PRESET_FAST,
+        DEV_MODE_PRESET_QUALITY,
+        DEV_MODE_PRESET_LOCAL,
+    ]
+
+
+def resolve_dev_mode_preset(
+    preset: str,
+    *,
+    configured_ollama_model: str,
+    available_ollama_models: list[str] | None = None,
+) -> tuple[str, str] | None:
+    """Resolve a preset into provider/model overrides for the current session."""
+    normalized = preset.strip()
+    if not normalized or normalized == DEV_MODE_PRESET_MANUAL:
+        return None
+    if normalized == DEV_MODE_PRESET_FAST:
+        return ("openai", "gpt-4.1-mini")
+    if normalized == DEV_MODE_PRESET_QUALITY:
+        return ("openai", "gpt-4.1")
+    if normalized == DEV_MODE_PRESET_LOCAL:
+        default_model = configured_ollama_model.strip()
+        if default_model:
+            return ("ollama", default_model)
+        if available_ollama_models:
+            return ("ollama", available_ollama_models[0].strip())
+        return ("ollama", "")
+    return None

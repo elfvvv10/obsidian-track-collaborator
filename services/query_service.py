@@ -8,7 +8,7 @@ from config import AppConfig
 from embeddings import OllamaEmbeddingClient
 from llm import OllamaChatClient
 from model_clients import ChatModelClient
-from model_provider import create_chat_client, create_embedding_client
+from model_provider import configured_chat_model, create_chat_client, create_embedding_client, effective_chat_provider
 from retriever import Retriever, RetrievalDebugResult
 from saver import save_answer
 from services.common import ensure_index_compatible
@@ -90,6 +90,7 @@ class QueryService:
         retriever = self.retriever_cls(self.config, embedding_client, vector_store)
         chat_client = create_chat_client(
             self.config,
+            provider_override=request.chat_provider_override,
             model_override=request.chat_model_override,
             client_cls=self.chat_client_cls,
         )
@@ -275,7 +276,18 @@ class QueryService:
                 imported_knowledge_chunks=trust_counts["imported_knowledge"],
                 non_curated_note_chunks=trust_counts["non_curated_note"],
                 generated_or_imported_chunks=trust_counts["generated_or_imported"],
-                active_chat_model=getattr(chat_client, "model", self.config.ollama_chat_model),
+                active_chat_provider=effective_chat_provider(
+                    self.config,
+                    provider_override=request.chat_provider_override,
+                ),
+                active_chat_model=getattr(
+                    chat_client,
+                    "model",
+                    configured_chat_model(
+                        self.config,
+                        provider_override=request.chat_provider_override,
+                    ),
+                ),
                 imported_genres_eligible=eligible_import_genres,
                 hallucination_guard_warnings=tuple(
                     _build_guard_warnings(
