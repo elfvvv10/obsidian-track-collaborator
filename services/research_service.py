@@ -56,6 +56,9 @@ class ResearchService:
             model_override=request.chat_model_override,
         )
         workflow_plan = self.music_workflow_service.build_research_plan(request)
+        track_context = None
+        if request.use_track_context and request.track_id:
+            track_context = query_service.track_context_service.load_or_create(request.track_id)
 
         subquestions, planning_notes = self._generate_subquestions(
             workflow_plan.prompt_text,
@@ -80,6 +83,9 @@ class ResearchService:
                     domain_profile=request.domain_profile,
                     collaboration_workflow=request.collaboration_workflow,
                     workflow_input=request.workflow_input,
+                    track_id=request.track_id,
+                    use_track_context=request.use_track_context,
+                    track_context=track_context,
                     chat_model_override=request.chat_model_override,
                 )
             )
@@ -110,6 +116,7 @@ class ResearchService:
                 domain_profile=request.domain_profile.value,
                 workflow_type=request.collaboration_workflow.value,
                 workflow_input=request.workflow_input.as_dict(),
+                track_context=track_context,
             )
             logger.info("Saved research answer to %s", saved_path)
 
@@ -125,6 +132,7 @@ class ResearchService:
             domain_profile=request.domain_profile,
             collaboration_workflow=request.collaboration_workflow,
             workflow_input=request.workflow_input,
+            track_context=track_context,
         )
 
     def save(
@@ -157,6 +165,9 @@ class ResearchService:
             workflow_input=(
                 existing_response.workflow_input.as_dict() if existing_response is not None else None
             ),
+            track_context=(
+                existing_response.track_context if existing_response is not None else None
+            ),
         )
         logger.info("Saved research answer to %s", saved_path)
         if existing_response is not None:
@@ -184,6 +195,11 @@ class ResearchService:
                 existing_response.workflow_input
                 if existing_response is not None
                 else WorkflowInput()
+            ),
+            track_context=(
+                existing_response.track_context
+                if existing_response is not None
+                else None
             ),
         )
     def _generate_subquestions(

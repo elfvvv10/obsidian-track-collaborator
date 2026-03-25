@@ -21,11 +21,13 @@ from services.models import (
     RetrievalModeUsed,
     RetrievalScope,
     SessionTask,
+    TrackContext,
     WebSearchAttemptInfo,
     WebQueryStrategy,
     WorkflowInput,
 )
 from services.prompt_service import PromptService, answer_uses_inference, build_citation_sources, enforce_citation_summary
+from services.track_context_service import TrackContextService
 from services.web_alignment_service import WebAlignmentResult, WebAlignmentService
 from services.web_search_service import WebSearchService
 from utils import AnswerResult, RetrievedChunk, get_logger
@@ -62,6 +64,7 @@ class QueryService:
         self.web_alignment_service_cls = web_alignment_service_cls
         self.capture_debug_trace = capture_debug_trace
         self.music_workflow_service = MusicWorkflowService(config)
+        self.track_context_service = TrackContextService(config)
         self._last_web_alignment: WebAlignmentResult | None = None
         self._last_web_attempts: list[WebSearchAttemptInfo] = []
 
@@ -81,6 +84,9 @@ class QueryService:
         prompt_service = self.prompt_service_cls(self.config)
         web_alignment_service = self.web_alignment_service_cls()
         workflow_plan = self.music_workflow_service.build_query_plan(request)
+        track_context = request.track_context
+        if track_context is None and request.use_track_context and request.track_id:
+            track_context = self.track_context_service.load_or_create(request.track_id)
         self._last_web_alignment = None
         self._last_web_attempts = []
 
@@ -113,6 +119,7 @@ class QueryService:
                 domain_profile=request.domain_profile,
                 collaboration_workflow=request.collaboration_workflow,
                 workflow_input=request.workflow_input,
+                track_context=track_context,
                 recent_conversation=request.recent_conversation,
                 current_tasks=request.current_tasks,
                 web_alignment=self._last_web_alignment,
@@ -144,6 +151,7 @@ class QueryService:
                 domain_profile=request.domain_profile,
                 collaboration_workflow=request.collaboration_workflow,
                 workflow_input=request.workflow_input,
+                track_context=track_context,
                 recent_conversation=request.recent_conversation,
                 current_tasks=request.current_tasks,
                 web_alignment=self._last_web_alignment,
@@ -194,6 +202,7 @@ class QueryService:
                 domain_profile=request.domain_profile.value,
                 workflow_type=request.collaboration_workflow.value,
                 workflow_input=request.workflow_input.as_dict(),
+                track_context=track_context,
             )
             logger.info("Saved answer to %s", saved_path)
 
@@ -250,6 +259,7 @@ class QueryService:
             domain_profile=request.domain_profile,
             collaboration_workflow=request.collaboration_workflow,
             workflow_input=request.workflow_input,
+            track_context=track_context,
         )
     def save(
         self,
@@ -287,6 +297,11 @@ class QueryService:
                 if existing_response is not None
                 else None
             ),
+            track_context=(
+                existing_response.track_context
+                if existing_response is not None
+                else None
+            ),
         )
         logger.info("Saved answer to %s", saved_path)
         if existing_response is not None:
@@ -314,6 +329,11 @@ class QueryService:
                 existing_response.workflow_input
                 if existing_response is not None
                 else WorkflowInput()
+            ),
+            track_context=(
+                existing_response.track_context
+                if existing_response is not None
+                else None
             ),
         )
 
@@ -542,6 +562,7 @@ def _build_answer_result(
     domain_profile: DomainProfile = DomainProfile.ELECTRONIC_MUSIC,
     collaboration_workflow=CollaborationWorkflow.GENERAL_ASK,
     workflow_input: WorkflowInput | None = None,
+    track_context: TrackContext | None = None,
     recent_conversation: list[ChatMessage] | None = None,
     current_tasks: list[SessionTask] | None = None,
     web_alignment: WebAlignmentResult | None = None,
@@ -571,6 +592,9 @@ def _build_answer_result(
         domain_profile=domain_profile,
         collaboration_workflow=collaboration_workflow,
         workflow_input=workflow_input,
+        track_id=track_context.track_id if track_context is not None else None,
+        use_track_context=track_context is not None,
+        track_context=track_context,
         recent_conversation=recent_conversation,
         current_tasks=current_tasks,
         web_query_used=web_alignment.query if web_alignment else question,

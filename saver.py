@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
+from services.models import TrackContext
 from utils import AnswerResult, current_timestamp, ensure_directory, slugify
 
 
@@ -26,6 +27,7 @@ def save_answer(
     domain_profile: str | None = None,
     workflow_type: str | None = None,
     workflow_input: dict[str, str] | None = None,
+    track_context: TrackContext | None = None,
 ) -> Path:
     """Write the answer and sources to a markdown file."""
     ensure_directory(output_path)
@@ -45,6 +47,7 @@ def save_answer(
         domain_profile=domain_profile,
         workflow_type=workflow_type,
         workflow_input=workflow_input or {},
+        track_context=track_context,
     )
     destination.write_text(body, encoding="utf-8")
     return destination
@@ -61,6 +64,7 @@ def _build_markdown(
     domain_profile: str | None,
     workflow_type: str | None,
     workflow_input: dict[str, str],
+    track_context: TrackContext | None,
 ) -> str:
     sources = "\n".join(f"- {source}" for source in result.sources) or "- No sources available"
     summary = _build_summary(result.answer)
@@ -69,6 +73,7 @@ def _build_markdown(
     title = title_override.strip() if title_override and title_override.strip() else "Research Answer"
     timestamp = current_timestamp()
     structured_input_block = _build_structured_input_block(workflow_input)
+    track_context_block = format_track_context_summary(track_context)
     actionability_block = _build_actionability_block(workflow_type, result.answer)
     inference_note = (
         "This output includes explicitly labeled inference or stylistic extrapolation."
@@ -105,6 +110,7 @@ def _build_markdown(
         f"{question}\n\n"
         f"## Input Summary\n\n"
         f"{structured_input_block}\n\n"
+        f"{track_context_block}"
         f"## Summary\n\n"
         f"{summary}\n\n"
         f"## {workflow_section_title}\n\n"
@@ -173,6 +179,43 @@ def _build_structured_input_block(workflow_input: dict[str, str]) -> str:
         f"- {key.replace('_', ' ').title()}: {value}"
         for key, value in workflow_input.items()
     )
+
+
+def format_track_context_summary(track_context: TrackContext | None) -> str:
+    """Render a concise markdown summary for YAML-backed track context."""
+    if track_context is None:
+        return ""
+
+    lines = [
+        "## Track Context",
+        "",
+        f"- Track ID: {track_context.track_id}",
+        f"- Workflow Mode: {track_context.workflow_mode}",
+    ]
+    optional_fields = (
+        ("Track Name", track_context.track_name),
+        ("Genre", track_context.genre),
+        ("BPM", track_context.bpm),
+        ("Key", track_context.key),
+        ("Current Stage", track_context.current_stage),
+        ("Current Section", track_context.current_section),
+    )
+    for label, value in optional_fields:
+        if value is not None and str(value).strip():
+            lines.append(f"- {label}: {value}")
+    if track_context.vibe:
+        lines.append(f"- Vibe: {', '.join(track_context.vibe)}")
+    if track_context.reference_tracks:
+        lines.append(f"- Reference Tracks: {', '.join(track_context.reference_tracks)}")
+    if track_context.known_issues:
+        lines.append(f"- Known Issues: {', '.join(track_context.known_issues)}")
+    if track_context.goals:
+        lines.append(f"- Goals: {', '.join(track_context.goals)}")
+    if track_context.notes:
+        lines.append(f"- Notes: {' | '.join(track_context.notes)}")
+    lines.append("")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _workflow_section_title(workflow_type: str | None) -> str:

@@ -1,14 +1,17 @@
-"""Track-context loading and formatting for workflow-aware prompt injection."""
+"""Track-context loading, persistence, and prompt formatting helpers."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
+
+import yaml
 
 from config import AppConfig
 from metadata_parser import parse_markdown_metadata
-from services.models import CollaborationWorkflow
-from utils import get_logger
+from services.models import CollaborationWorkflow, TrackContext
+from services.track_context_utils import normalize_track_context
+from utils import ensure_directory, get_logger
 
 
 logger = get_logger()
@@ -51,17 +54,81 @@ class TrackContextResult:
 
 
 class TrackContextService:
-    """Resolve, parse, and format per-track context documents."""
+    """Resolve, parse, format, and persist per-track context documents."""
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
+
+    @property
+    def yaml_directory(self) -> Path:
+        """Return the storage directory for YAML-backed track contexts."""
+        return self.config.obsidian_output_path / "track_contexts"
+
+    def exists(self, track_id: str) -> bool:
+        """Return whether a YAML track context already exists."""
+        return self._yaml_path(track_id).exists()
+
+    def load(self, track_id: str) -> TrackContext:
+        """Load and normalize a YAML track context file."""
+        path = self._yaml_path(track_id)
+        raw_text = path.read_text(encoding="utf-8") if path.exists() else ""
+        if not raw_text.strip():
+            raw_data: dict[str, object] = {"track_id": track_id}
+        else:
+            loaded = yaml.safe_load(raw_text)
+            raw_data = loaded if isinstance(loaded, dict) else {"track_id": track_id}
+            raw_data.setdefault("track_id", track_id)
+        context = normalize_track_context(raw_data)
+        self._debug_log("Track context YAML load: %s", path)
+        return context
+
+    def create_default(self, track_id: str) -> TrackContext:
+        """Create a minimal normalized YAML track context on disk."""
+        context = normalize_track_context(
+            {
+                "track_id": track_id,
+                "workflow_mode": "general",
+            }
+        )
+        self.save(context)
+        return context
+
+    def load_or_create(self, track_id: str) -> TrackContext:
+        """Load an existing YAML track context or create a default one."""
+        if self.exists(track_id):
+            return self.load(track_id)
+        return self.create_default(track_id)
+
+    def save(self, context: TrackContext) -> Path:
+        """Persist a normalized YAML track context."""
+        normalized = normalize_track_context(asdict(context))
+        destination = self._yaml_path(normalized.track_id)
+        ensure_directory(destination.parent)
+        body = yaml.safe_dump(
+            asdict(normalized),
+            allow_unicode=True,
+            sort_keys=False,
+            default_flow_style=False,
+        )
+        destination.write_text(body, encoding="utf-8")
+        self._debug_log("Track context YAML save: %s", destination)
+        return destination
+
+    def update_fields(self, track_id: str, updates: dict[str, object]) -> TrackContext:
+        """Merge updated fields into an existing YAML track context."""
+        existing = asdict(self.load_or_create(track_id))
+        existing.update(updates)
+        existing["track_id"] = track_id
+        context = normalize_track_context(existing)
+        self.save(context)
+        return context
 
     def get_track_context(
         self,
         workflow: CollaborationWorkflow,
         track_context_path: str | None,
     ) -> TrackContextResult:
-        """Return prompt-ready context for supported workflows, or an empty result."""
+        """Return prompt-ready legacy markdown context for supported workflows."""
         if workflow not in {
             CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE,
             CollaborationWorkflow.ARRANGEMENT_PLANNER,
@@ -99,6 +166,10 @@ class TrackContextService:
             prompt_block=prompt_block,
             found=bool(prompt_block),
         )
+
+    def _yaml_path(self, track_id: str) -> Path:
+        safe_track_id = (track_id or "default_track").strip() or "default_track"
+        return self.yaml_directory / f"{safe_track_id}.yaml"
 
     def _resolve_track_context_path(self, track_context_path: str | None) -> Path | None:
         raw_path = (track_context_path or "").strip()

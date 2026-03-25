@@ -203,6 +203,26 @@ class WorkflowInput:
 
 
 @dataclass(slots=True)
+class TrackContext:
+    """Normalized YAML-backed track context used by the primary editable flow."""
+
+    track_id: str = "default_track"
+    track_name: str | None = None
+    genre: str | None = None
+    bpm: int | None = None
+    key: str | None = None
+    vibe: list[str] = field(default_factory=list)
+    reference_tracks: list[str] = field(default_factory=list)
+    workflow_mode: str = "general"
+    current_stage: str | None = None
+    current_section: str | None = None
+    sections: dict[str, str] = field(default_factory=dict)
+    known_issues: list[str] = field(default_factory=list)
+    goals: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class QueryRequest:
     """Structured request for answering a question."""
 
@@ -218,6 +238,9 @@ class QueryRequest:
     domain_profile: DomainProfile = DomainProfile.ELECTRONIC_MUSIC
     collaboration_workflow: CollaborationWorkflow = CollaborationWorkflow.GENERAL_ASK
     workflow_input: WorkflowInput = field(default_factory=WorkflowInput)
+    track_id: str | None = None
+    use_track_context: bool = True
+    track_context: "TrackContext | None" = None
     recent_conversation: list["ChatMessage"] = field(default_factory=list)
     current_tasks: list["SessionTask"] = field(default_factory=list)
 
@@ -300,6 +323,7 @@ class QueryResponse:
     domain_profile: DomainProfile = DomainProfile.ELECTRONIC_MUSIC
     collaboration_workflow: CollaborationWorkflow = CollaborationWorkflow.GENERAL_ASK
     workflow_input: WorkflowInput = field(default_factory=WorkflowInput)
+    track_context: TrackContext | None = None
 
     @property
     def answer(self) -> str:
@@ -391,6 +415,9 @@ class ResearchRequest:
     domain_profile: DomainProfile = DomainProfile.ELECTRONIC_MUSIC
     collaboration_workflow: CollaborationWorkflow = CollaborationWorkflow.RESEARCH_SESSION
     workflow_input: WorkflowInput = field(default_factory=WorkflowInput)
+    track_id: str | None = None
+    use_track_context: bool = True
+    track_context: TrackContext | None = None
 
     def __post_init__(self) -> None:
         self.retrieval_scope = RetrievalScope.coerce(self.retrieval_scope)
@@ -425,6 +452,7 @@ class ResearchResponse:
     domain_profile: DomainProfile = DomainProfile.ELECTRONIC_MUSIC
     collaboration_workflow: CollaborationWorkflow = CollaborationWorkflow.RESEARCH_SESSION
     workflow_input: WorkflowInput = field(default_factory=WorkflowInput)
+    track_context: TrackContext | None = None
 
     @property
     def answer(self) -> str:

@@ -13,6 +13,7 @@ from services.models import (
     DomainProfile,
     RetrievalMode,
     SessionTask,
+    TrackContext,
     WorkflowInput,
 )
 from services.track_context_service import TrackContextService
@@ -62,6 +63,9 @@ class PromptService:
         domain_profile: DomainProfile = DomainProfile.ELECTRONIC_MUSIC,
         collaboration_workflow: CollaborationWorkflow = CollaborationWorkflow.GENERAL_ASK,
         workflow_input: WorkflowInput | None = None,
+        track_id: str | None = None,
+        use_track_context: bool = False,
+        track_context: TrackContext | None = None,
         recent_conversation: list[ChatMessage] | None = None,
         current_tasks: list[SessionTask] | None = None,
         web_query_used: str = "",
@@ -74,16 +78,21 @@ class PromptService:
         recent_conversation = recent_conversation or []
         current_tasks = current_tasks or []
         framework_text = self.framework_service.get_framework_text(collaboration_workflow, domain_profile)
-        track_context = self.track_context_service.get_track_context(
-            collaboration_workflow,
-            workflow_input.track_context_path,
-        )
+        track_context_text = ""
+        if use_track_context and track_id and track_context is not None:
+            track_context_text = self._format_track_context(track_context)
+        else:
+            legacy_track_context = self.track_context_service.get_track_context(
+                collaboration_workflow,
+                workflow_input.track_context_path,
+            )
+            track_context_text = legacy_track_context.prompt_block
         system_prompt = _build_system_prompt(
             answer_mode,
             domain_profile=domain_profile,
             collaboration_workflow=collaboration_workflow,
             framework_text=framework_text,
-            track_context_text=track_context.prompt_block,
+            track_context_text=track_context_text,
             recent_conversation=recent_conversation,
             current_tasks=current_tasks,
         )
@@ -119,6 +128,46 @@ class PromptService:
             domain_profile=domain_profile,
             collaboration_workflow=collaboration_workflow,
         )
+
+    def _format_track_context(self, track_context: TrackContext) -> str:
+        """Format YAML-backed track context for internal prompt injection."""
+        lines = [
+            "Use this as internal track-state guidance for continuity, prioritization, and finish-oriented advice. "
+            "Do not treat it as evidence or a citation source.",
+            "",
+            "Track context summary:",
+            f"- Track Id: {track_context.track_id}",
+            f"- Workflow Mode: {track_context.workflow_mode}",
+        ]
+        optional_fields = (
+            ("Track Name", track_context.track_name),
+            ("Genre", track_context.genre),
+            ("BPM", track_context.bpm),
+            ("Key", track_context.key),
+            ("Current Stage", track_context.current_stage),
+            ("Current Section", track_context.current_section),
+        )
+        for label, value in optional_fields:
+            if value is not None and str(value).strip():
+                lines.append(f"- {label}: {value}")
+        if track_context.vibe:
+            lines.append(f"- Vibe: {', '.join(track_context.vibe)}")
+        if track_context.reference_tracks:
+            lines.append(f"- Reference Tracks: {', '.join(track_context.reference_tracks)}")
+        if track_context.known_issues:
+            lines.append(f"- Known Issues: {', '.join(track_context.known_issues)}")
+        if track_context.goals:
+            lines.append(f"- Goals: {', '.join(track_context.goals)}")
+        if track_context.sections:
+            section_summary = ", ".join(
+                f"{section}: {description}" for section, description in track_context.sections.items()
+            )
+            lines.append(f"- Sections: {section_summary}")
+        if track_context.notes:
+            lines.append("")
+            lines.append("Track context notes:")
+            lines.extend(track_context.notes)
+        return "\n".join(lines)
 
     def build_research_plan_payload(
         self,

@@ -52,7 +52,7 @@ def main() -> None:
     services = _get_services(ui_config)
     status, status_error = _safe_get_status(services["index_service"])
 
-    _render_sidebar(base_config, status, status_error)
+    _render_sidebar(base_config, status, status_error, services["query_service"])
 
     ask_tab, ingest_tab, index_tab, settings_tab = st.tabs(
         ["Ask", "Ingest", "Index", "Settings / Debug"]
@@ -95,7 +95,12 @@ def _safe_get_status(index_service: IndexService) -> tuple[IndexResponse | None,
         return None, str(exc)
 
 
-def _render_sidebar(config: AppConfig, status: IndexResponse | None, status_error: str | None) -> None:
+def _render_sidebar(
+    config: AppConfig,
+    status: IndexResponse | None,
+    status_error: str | None,
+    query_service: QueryService,
+) -> None:
     with st.sidebar:
         st.header("Retrieval Settings")
         st.caption("These stay in the background while the composer remains the main workflow.")
@@ -155,6 +160,110 @@ def _render_sidebar(config: AppConfig, status: IndexResponse | None, status_erro
         st.caption("Retrieval scope is chosen in the Ask tab so it stays close to the current prompt.")
 
         st.divider()
+        st.subheader("Track Context")
+        st.text_input(
+            "Track ID",
+            key="track_context_track_id",
+            help="Persistent YAML track context identifier for the new editable flow.",
+        )
+        st.checkbox(
+            "Use Track Context",
+            key="use_track_context",
+            help="Enable YAML-backed track context for direct asks and research workflows.",
+        )
+        track_id = st.session_state.get("track_context_track_id", "").strip()
+        if st.session_state.get("use_track_context") and track_id:
+            context = query_service.track_context_service.load_or_create(track_id)
+            with st.expander("Edit YAML Track Context", expanded=False):
+                with st.form("track_context_editor", clear_on_submit=False, enter_to_submit=False):
+                    st.text_input(
+                        "Track Name",
+                        value=context.track_name or "",
+                        key="track_context_track_name",
+                    )
+                    st.text_input("Genre", value=context.genre or "", key="track_context_genre")
+                    st.text_input(
+                        "BPM",
+                        value="" if context.bpm is None else str(context.bpm),
+                        key="track_context_bpm",
+                    )
+                    st.text_input("Key", value=context.key or "", key="track_context_key")
+                    st.selectbox(
+                        "Workflow Mode",
+                        options=_TRACK_CONTEXT_WORKFLOW_MODES,
+                        index=_TRACK_CONTEXT_WORKFLOW_MODES.index(context.workflow_mode),
+                        key="track_context_workflow_mode",
+                    )
+                    stage_options = [""] + _TRACK_CONTEXT_CURRENT_STAGES
+                    current_stage = context.current_stage or ""
+                    st.selectbox(
+                        "Current Stage",
+                        options=stage_options,
+                        index=stage_options.index(current_stage),
+                        key="track_context_current_stage",
+                    )
+                    st.text_input(
+                        "Current Section",
+                        value=context.current_section or "",
+                        key="track_context_current_section",
+                    )
+                    st.text_input(
+                        "Vibe (comma separated)",
+                        value=", ".join(context.vibe),
+                        key="track_context_vibe",
+                    )
+                    st.text_area(
+                        "Reference Tracks (one per line)",
+                        value="\n".join(context.reference_tracks),
+                        key="track_context_reference_tracks",
+                        height=80,
+                    )
+                    st.text_area(
+                        "Known Issues (one per line)",
+                        value="\n".join(context.known_issues),
+                        key="track_context_known_issues",
+                        height=80,
+                    )
+                    st.text_area(
+                        "Goals (one per line)",
+                        value="\n".join(context.goals),
+                        key="track_context_goals",
+                        height=80,
+                    )
+                    st.text_area(
+                        "Notes (one per line)",
+                        value="\n".join(context.notes),
+                        key="track_context_notes",
+                        height=100,
+                    )
+                    saved = st.form_submit_button("Save Track Context", use_container_width=True)
+                if saved:
+                    query_service.track_context_service.update_fields(
+                        track_id,
+                        {
+                            "track_name": st.session_state["track_context_track_name"],
+                            "genre": st.session_state["track_context_genre"],
+                            "bpm": st.session_state["track_context_bpm"],
+                            "key": st.session_state["track_context_key"],
+                            "workflow_mode": st.session_state["track_context_workflow_mode"],
+                            "current_stage": st.session_state["track_context_current_stage"],
+                            "current_section": st.session_state["track_context_current_section"],
+                            "vibe": _split_csv(st.session_state["track_context_vibe"]),
+                            "reference_tracks": _split_lines(
+                                st.session_state["track_context_reference_tracks"]
+                            ),
+                            "known_issues": _split_lines(
+                                st.session_state["track_context_known_issues"]
+                            ),
+                            "goals": _split_lines(st.session_state["track_context_goals"]),
+                            "notes": _split_lines(st.session_state["track_context_notes"]),
+                        },
+                    )
+                    st.success("Track context saved.")
+        elif st.session_state.get("use_track_context"):
+            st.caption("Enter a Track ID to load or create a persistent YAML track context.")
+
+        st.divider()
         st.subheader("App Readiness")
         if status is None:
             st.warning("Status is currently unavailable.")
@@ -205,20 +314,34 @@ def _render_ask_tab(
             "workflow_track_length",
             "workflow_role_of_key_elements",
             "workflow_track_context_path",
+            "track_context_track_id",
+            "track_context_track_name",
+            "track_context_genre",
+            "track_context_bpm",
+            "track_context_key",
+            "track_context_current_section",
+            "track_context_vibe",
+            "track_context_reference_tracks",
+            "track_context_known_issues",
+            "track_context_goals",
+            "track_context_notes",
             "new_task_text",
             "new_task_notes",
         ):
             st.session_state[key] = ""
         st.session_state["collaboration_workflow"] = CollaborationWorkflow.GENERAL_ASK.value
         st.session_state["workflow_mode"] = WorkflowMode.DIRECT.value
+        st.session_state["use_track_context"] = True
+        st.session_state["track_context_workflow_mode"] = "general"
+        st.session_state["track_context_current_stage"] = ""
         st.session_state["max_subquestions"] = 3
         st.session_state["chat_messages"] = []
         st.session_state["session_tasks"] = []
         st.session_state["last_query_response"] = None
         st.session_state["last_question"] = ""
-        st.session_state["active_chat_model"] = config.ollama_chat_model
-        st.session_state["active_chat_model_select"] = config.ollama_chat_model
-        st.session_state["active_chat_model_input"] = config.ollama_chat_model
+        st.session_state["active_chat_model"] = _DEFAULT_ACTIVE_CHAT_MODEL
+        st.session_state["active_chat_model_select"] = _DEFAULT_ACTIVE_CHAT_MODEL
+        st.session_state["active_chat_model_input"] = _DEFAULT_ACTIVE_CHAT_MODEL
         st.session_state["reset_ask_form"] = False
 
     if status is not None:
@@ -312,8 +435,11 @@ def _render_ask_tab(
                 help="Override the saved note title and filename slug.",
             )
             if available_chat_models:
-                model_options = list(available_chat_models)
-                current_model = st.session_state.get("active_chat_model", config.ollama_chat_model)
+                current_model = _resolve_preferred_chat_model_name(
+                    st.session_state.get("active_chat_model", _DEFAULT_ACTIVE_CHAT_MODEL),
+                    available_chat_models,
+                )
+                model_options = _dedupe_chat_model_options(available_chat_models)
                 if current_model not in model_options:
                     model_options.insert(0, current_model)
                 st.selectbox(
@@ -336,7 +462,12 @@ def _render_ask_tab(
                 st.session_state.get("active_chat_model_select", "").strip()
                 if available_chat_models
                 else st.session_state.get("active_chat_model_input", "").strip()
-            ) or config.ollama_chat_model
+            ) or _DEFAULT_ACTIVE_CHAT_MODEL
+            if available_chat_models:
+                selected_chat_model = _resolve_preferred_chat_model_name(
+                    selected_chat_model,
+                    available_chat_models,
+                )
             st.session_state["active_chat_model"] = selected_chat_model
 
         if st.session_state["retrieval_scope"] == RetrievalScope.KNOWLEDGE.value:
@@ -444,6 +575,8 @@ def _render_ask_tab(
                     answer_mode=st.session_state["answer_mode"],
                     collaboration_workflow=st.session_state["collaboration_workflow"],
                     workflow_input=_current_workflow_input(),
+                    track_id=st.session_state["track_context_track_id"].strip() or None,
+                    use_track_context=st.session_state["use_track_context"],
                     chat_model_override=st.session_state["active_chat_model"],
                     recent_conversation=_recent_conversation_for_prompt(
                         chat_messages[:-1] if chat_workspace_enabled else [],
@@ -467,6 +600,8 @@ def _render_ask_tab(
                             answer_mode=request.answer_mode,
                             collaboration_workflow=st.session_state["collaboration_workflow"],
                             workflow_input=request.workflow_input,
+                            track_id=request.track_id,
+                            use_track_context=request.use_track_context,
                             chat_model_override=request.chat_model_override,
                             max_subquestions=st.session_state["max_subquestions"],
                         )
@@ -1029,9 +1164,14 @@ def _show_index_result(title: str, response: IndexResponse) -> None:
 
 
 def _render_settings_tab(config: AppConfig, status: IndexResponse | None, status_error: str | None) -> None:
+    available_chat_models, _ = list_available_chat_models(config)
+    active_chat_model = _resolve_preferred_chat_model_name(
+        st.session_state.get("active_chat_model", _DEFAULT_ACTIVE_CHAT_MODEL),
+        available_chat_models,
+    )
     st.subheader("Active Models")
     model_cols = st.columns(2)
-    model_cols[0].write(f"Chat model: `{config.ollama_chat_model}`")
+    model_cols[0].write(f"Chat model: `{active_chat_model}`")
     model_cols[1].write(f"Embedding model: `{config.ollama_embedding_model}`")
 
     st.subheader("Paths and Status")
@@ -1099,6 +1239,40 @@ def _current_workflow_input() -> WorkflowInput:
         role_of_key_elements=st.session_state["workflow_role_of_key_elements"],
         track_context_path=st.session_state["workflow_track_context_path"],
     )
+
+
+def _split_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _split_lines(value: str) -> list[str]:
+    return [line.strip() for line in value.splitlines() if line.strip()]
+
+
+def _dedupe_chat_model_options(models: list[str]) -> list[str]:
+    canonical_models = []
+    seen: set[str] = set()
+    for model in models:
+        canonical = _resolve_preferred_chat_model_name(model, models)
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        canonical_models.append(canonical)
+    return canonical_models
+
+
+def _resolve_preferred_chat_model_name(model: str, available_models: list[str]) -> str:
+    normalized_model = model.strip()
+    if not normalized_model:
+        return _DEFAULT_ACTIVE_CHAT_MODEL
+    if normalized_model in available_models:
+        return normalized_model
+    if f"{normalized_model}:latest" in available_models:
+        return f"{normalized_model}:latest"
+    for candidate in available_models:
+        if candidate.startswith(f"{normalized_model}-") or candidate.startswith(f"{normalized_model}:"):
+            return candidate
+    return normalized_model
 
 
 def _render_chat_history() -> None:
@@ -1226,9 +1400,9 @@ def _init_session_state(config: AppConfig) -> None:
         "path_filter": "",
         "tag_filter": "",
         "save_title": "",
-        "active_chat_model": config.ollama_chat_model,
-        "active_chat_model_select": config.ollama_chat_model,
-        "active_chat_model_input": config.ollama_chat_model,
+        "active_chat_model": _DEFAULT_ACTIVE_CHAT_MODEL,
+        "active_chat_model_select": _DEFAULT_ACTIVE_CHAT_MODEL,
+        "active_chat_model_input": _DEFAULT_ACTIVE_CHAT_MODEL,
         "top_k": config.top_k_results,
         "enable_reranking": config.enable_reranking,
         "include_linked": config.enable_linked_note_expansion,
@@ -1249,6 +1423,20 @@ def _init_session_state(config: AppConfig) -> None:
         "workflow_track_length": "",
         "workflow_role_of_key_elements": "",
         "workflow_track_context_path": "",
+        "track_context_track_id": "",
+        "use_track_context": True,
+        "track_context_track_name": "",
+        "track_context_genre": "",
+        "track_context_bpm": "",
+        "track_context_key": "",
+        "track_context_workflow_mode": "general",
+        "track_context_current_stage": "",
+        "track_context_current_section": "",
+        "track_context_vibe": "",
+        "track_context_reference_tracks": "",
+        "track_context_known_issues": "",
+        "track_context_goals": "",
+        "track_context_notes": "",
         "chat_messages": [],
         "session_tasks": [],
         "new_task_text": "",
@@ -1286,6 +1474,30 @@ _CHAT_TASK_WORKFLOWS = {
     CollaborationWorkflow.ARRANGEMENT_PLANNER.value,
     CollaborationWorkflow.SOUND_DESIGN_BRAINSTORM.value,
 }
+
+_TRACK_CONTEXT_WORKFLOW_MODES = [
+    "general",
+    "composition",
+    "arrangement",
+    "sound_design",
+    "critique",
+    "mixing",
+    "research",
+]
+
+_TRACK_CONTEXT_CURRENT_STAGES = [
+    "idea",
+    "sketch",
+    "writing",
+    "arrangement",
+    "sound_design",
+    "production",
+    "mixing",
+    "mastering",
+    "finalizing",
+]
+
+_DEFAULT_ACTIVE_CHAT_MODEL = "deepseek"
 
 
 if __name__ == "__main__":
