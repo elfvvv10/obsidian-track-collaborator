@@ -10,7 +10,7 @@ If you want the shortest path to a working local setup:
 2. Pull models:
 
 ```bash
-ollama pull hermes3
+ollama pull deepseek-r1
 ollama pull nomic-embed-text
 ```
 
@@ -171,7 +171,7 @@ Core modules:
 - [Ollama](https://ollama.com/)
 - A local Ollama chat model and embedding model
 - Sample defaults:
-  - `OLLAMA_CHAT_MODEL=hermes3`
+  - `OLLAMA_CHAT_MODEL=deepseek`
   - `OLLAMA_EMBEDDING_MODEL=nomic-embed-text`
 
 ## Installation
@@ -197,17 +197,17 @@ Follow the official instructions for your platform:
 Minimum:
 
 ```bash
-ollama pull hermes3
+ollama pull deepseek-r1
 ollama pull nomic-embed-text
 ```
 
 Optional:
 
 ```bash
-ollama pull deepseek-r1
+ollama pull hermes3
 ```
 
-The Streamlit UI has a session-level active chat model selector and currently defaults that session selector to `deepseek` when available. The backend config default remains whatever you set in `OLLAMA_CHAT_MODEL`.
+The Streamlit UI has a session-level active chat model selector and currently defaults that session selector to `deepseek` when available. The sample backend config now also defaults to `OLLAMA_CHAT_MODEL=deepseek`, so the documented setup is aligned out of the box.
 
 ### 3. Verify Ollama is running
 
@@ -236,7 +236,7 @@ OBSIDIAN_VAULT_PATH=./sample_vault
 OBSIDIAN_OUTPUT_PATH=./sample_vault/Saved Outputs
 CHROMA_DB_PATH=./chroma_db
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_CHAT_MODEL=hermes3
+OLLAMA_CHAT_MODEL=deepseek
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 TOP_K_RESULTS=3
 CHUNK_SIZE=1000
