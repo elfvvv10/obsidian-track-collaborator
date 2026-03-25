@@ -197,8 +197,6 @@ def run_ask(
     )
     query_service = QueryService(
         config,
-        embedding_client_cls=OllamaEmbeddingClient,
-        chat_client_cls=OllamaChatClient,
         retriever_cls=Retriever,
         web_search_service_cls=WebSearchService,
         capture_debug_trace=False,

@@ -78,11 +78,12 @@ class ArrangementServiceTests(unittest.TestCase):
         self.assertEqual(arrangement.genre, "progressive_house")
         self.assertEqual(arrangement.bpm, 124)
         self.assertEqual(arrangement.arrangement_version, 1)
+        self.assertEqual(arrangement.total_bars, 24)
         self.assertEqual(arrangement.global_notes[0], "Overall goal: hypnotic progressive flow with stronger second drop")
         self.assertEqual(len(arrangement.section_index), 2)
         self.assertEqual(len(arrangement.sections), 2)
 
-    def test_section_extraction_and_active_layers_work(self) -> None:
+    def test_section_extraction_and_elements_work(self) -> None:
         arrangement = self.service.parse_markdown(ARRANGEMENT_MARKDOWN)
         intro = arrangement.sections[0]
 
@@ -92,15 +93,14 @@ class ArrangementServiceTests(unittest.TestCase):
         self.assertEqual(intro.end_bar, 8)
         self.assertEqual(intro.energy, 2)
         self.assertEqual(intro.purpose, "establish groove, low commitment, DJ-friendly intro")
-        self.assertEqual(intro.active_layers[0].layer, "kick")
-        self.assertEqual(intro.active_layers[0].state, "partial")
-        self.assertEqual(intro.active_layers[0].notes, "no groove hat")
+        self.assertEqual(intro.elements[0], "kick (partial) - no groove hat")
+        self.assertIn("impact (sparse) - crash only", intro.elements)
 
-    def test_transitions_and_issues_are_captured(self) -> None:
+    def test_section_notes_and_issues_are_captured(self) -> None:
         arrangement = self.service.parse_markdown(ARRANGEMENT_MARKDOWN)
         intro = arrangement.sections[0]
 
-        self.assertEqual(intro.transitions, ["no groove hat", "keep energy restrained"])
+        self.assertEqual(intro.notes, ["no groove hat", "keep energy restrained"])
         self.assertEqual(intro.issues, ["could use subtle foley or atmos movement"])
 
     def test_incomplete_arrangement_docs_do_not_crash(self) -> None:
@@ -137,7 +137,7 @@ class ArrangementChunkingTests(unittest.TestCase):
         self.assertEqual(chunks[0].arrangement_section_id, "overview")
         self.assertTrue(any(chunk.arrangement_section_id == "S1" for chunk in chunks))
         self.assertTrue(any(chunk.arrangement_section_id == "S2" for chunk in chunks))
-        self.assertTrue(any("Active Layers" in chunk.text for chunk in chunks if chunk.arrangement_section_id == "S1"))
+        self.assertTrue(any("Key Elements" in chunk.text for chunk in chunks if chunk.arrangement_section_id == "S1"))
 
     def test_arrangement_metadata_is_preserved_on_chunks(self) -> None:
         note = Note(

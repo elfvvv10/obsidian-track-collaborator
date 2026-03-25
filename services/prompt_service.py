@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 from config import AppConfig
 from services.framework_service import FrameworkService
@@ -79,19 +80,20 @@ class PromptService:
         current_tasks = current_tasks or []
         framework_text = self.framework_service.get_framework_text(collaboration_workflow, domain_profile)
         track_context_text = ""
-        critique_instructions = ""
         if use_track_context and track_id and track_context is not None:
             track_context_text = self._format_track_context(track_context)
-            critique_instructions = self._format_critique_instructions(
-                collaboration_workflow,
-                track_context,
-            )
         else:
             legacy_track_context = self.track_context_service.get_track_context(
                 collaboration_workflow,
                 workflow_input.track_context_path,
             )
             track_context_text = legacy_track_context.prompt_block
+        critique_instructions = self._format_critique_instructions(
+            collaboration_workflow,
+            track_context,
+            chunks,
+            workflow_input,
+        )
         system_prompt = _build_system_prompt(
             answer_mode,
             domain_profile=domain_profile,
@@ -168,22 +170,62 @@ class PromptService:
     def _format_critique_instructions(
         self,
         collaboration_workflow: CollaborationWorkflow,
-        track_context: TrackContext,
+        track_context: TrackContext | None,
+        chunks: list[RetrievedChunk],
+        workflow_input: WorkflowInput,
     ) -> str:
         """Return structured critique instructions when critique mode is active."""
         if collaboration_workflow != CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE:
             return ""
-        return (
-            "You are acting as a professional electronic music producer giving structured track critique.\n\n"
-            "Respond using this structure:\n\n"
-            "1. What is working\n"
-            "2. What is not working\n"
-            "3. Likely root cause\n"
-            "4. High-impact changes (prioritized)\n"
-            "5. Optional production experiments\n\n"
-            "Be specific to the track context. Avoid generic advice. "
-            "Prioritize feedback based on known issues, goals, and current problem when available."
+        arrangement_summary = _summarize_arrangement_evidence(chunks)
+        track_context_guidance = (
+            "Use Track Context only for long-term track identity and current production state, "
+            "such as genre, BPM, vibe, references, current stage, current problem, known issues, and goals."
+            if track_context is not None
+            else "If Track Context is unavailable, infer the track identity only from the user's question and retrieved evidence."
         )
+        arrangement_guidance = (
+            "Arrangement evidence is available. Treat it as the structural representation of the track over time. "
+            "Analyze the track section by section where useful, and refer to section names and bar ranges when practical. "
+            "Focus on arrangement and energy flow, transitions, pacing, overlong sections, weak drops, static loops, "
+            "and how groove, bass, and key elements evolve across sections."
+            if arrangement_summary
+            else "Structured arrangement evidence is not available. Fall back to a higher-level critique and be explicit "
+            "when section-level judgments are limited."
+        )
+        workflow_context_guidance = (
+            "Use any workflow arrangement notes as supporting context, but do not confuse them with structured arrangement evidence."
+            if workflow_input.arrangement_notes and workflow_input.arrangement_notes.strip()
+            else "If workflow context includes arrangement hints, use them as supporting context rather than as a substitute for evidence."
+        )
+        lines = [
+            "You are acting as a professional electronic music producer giving structured track critique.",
+            "",
+            track_context_guidance,
+            arrangement_guidance,
+            workflow_context_guidance,
+            "Prioritize the most important weaknesses and opportunities rather than listing every possible issue.",
+            "Be specific to this track. Avoid generic filler advice.",
+            "When relevant, assess genre/style fit against the track identity and reference tracks.",
+            "For each major issue, explain why it matters and what to change in practical production terms.",
+            "",
+            "Respond using these headings exactly:",
+            "- Overall Assessment",
+            "- Arrangement / Energy Flow",
+            "- Genre / Style Fit",
+            "- Groove / Bass / Element Evolution",
+            "- Priority Issues",
+            "- Recommended Next Changes",
+        ]
+        if arrangement_summary:
+            lines.extend(
+                [
+                    "",
+                    "Arrangement evidence available:",
+                    arrangement_summary,
+                ]
+            )
+        return "\n".join(lines)
 
     def build_research_plan_payload(
         self,
@@ -515,10 +557,15 @@ def _workflow_instructions(collaboration_workflow: CollaborationWorkflow) -> str
             "Workflow instructions:\n"
             f"{_music_collaboration_instruction_block()}\n"
             "- Critique the track concept like a constructive electronic music collaborator.\n"
+            "- Treat Track Context as long-term track identity and current production state, and treat arrangement evidence as structural track information over time.\n"
             "- Identify what is working, what feels weak or unclear, and what should be developed next.\n"
             "- Include arrangement, energy, and sound-design directions when they are relevant.\n"
+            "- When arrangement evidence is available, analyze it section by section and refer to section names or bar ranges when practical.\n"
+            "- Prefer section-aware critique over generic advice when the arrangement context supports it.\n"
+            "- Organize the critique with these headings exactly: Overall Assessment, Arrangement / Energy Flow, Genre / Style Fit, Groove / Bass / Element Evolution, Priority Issues, Recommended Next Changes.\n"
             "- For major critique points, explain the issue, why it matters, how to implement the change, a minimal first pass to try quickly, and what to listen for afterward.\n"
             "- Prefer practical studio actions over abstract commentary, including arrangement moves, automation moves, sound-design moves, drum or percussion changes, bass or low-end changes, transition-building techniques, and subtraction when useful.\n"
+            "- Prioritize the highest-impact issues rather than trying to diagnose everything at once.\n"
             "- Prefer actionable next steps over generic encouragement."
         )
     if collaboration_workflow == CollaborationWorkflow.ARRANGEMENT_PLANNER:
@@ -802,3 +849,34 @@ def _is_reference_chunk(chunk: RetrievedChunk) -> bool:
     if content_category == "curated_knowledge":
         return True
     return content_scope == "knowledge" and not _is_imported_chunk(chunk) and not _is_saved_answer_chunk(chunk)
+
+
+def _summarize_arrangement_evidence(chunks: list[RetrievedChunk]) -> str:
+    """Return a short section-aware arrangement summary for critique instructions."""
+    section_lines: list[str] = []
+    seen_sections: set[tuple[str, str]] = set()
+    for chunk in chunks:
+        if not _is_arrangement_chunk(chunk):
+            continue
+        track_name = str(chunk.metadata.get("arrangement_track_name", "")).strip()
+        section_name = str(chunk.metadata.get("arrangement_section_name", "")).strip()
+        if not section_name or section_name.lower() == "arrangement overview":
+            continue
+        key = (track_name, section_name)
+        if key in seen_sections:
+            continue
+        seen_sections.add(key)
+        section_parts = [section_name]
+        heading_context = str(chunk.metadata.get("heading_context", "")).strip()
+        bar_match = re.search(r"\bBars:\s*(\d+)\s*-\s*(\d+)\b", chunk.text)
+        if bar_match:
+            section_parts.append(f"Bars {bar_match.group(1)}-{bar_match.group(2)}")
+        elif heading_context and heading_context != section_name:
+            section_parts.append(heading_context)
+        energy = chunk.metadata.get("arrangement_energy")
+        if energy not in ("", None):
+            section_parts.append(f"Energy {energy}")
+        section_lines.append(f"- {' | '.join(section_parts)}")
+        if len(section_lines) >= 6:
+            break
+    return "\n".join(section_lines)

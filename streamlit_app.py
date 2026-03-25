@@ -8,7 +8,7 @@ from uuid import uuid4
 import streamlit as st
 
 from config import AppConfig, load_config
-from llm import list_available_chat_models
+from model_provider import list_available_chat_models
 from services.ingestion_service import IngestionService
 from services.index_service import IndexService
 from services.import_genre_service import GENERIC_IMPORT_GENRE, ImportGenreService
@@ -36,7 +36,13 @@ from services.track_selector_service import (
     selected_track_index,
     selected_track_path,
 )
-from services.ui_session_helpers import current_track_summary, debug_query_summary, suggestion_groups
+from services.ui_session_helpers import (
+    critique_support_summary,
+    current_track_summary,
+    debug_query_summary,
+    suggestion_groups,
+    track_context_status,
+)
 from utils import RetrievalFilters, RetrievalOptions, current_timestamp
 
 
@@ -169,41 +175,51 @@ def _render_sidebar(
 
         st.divider()
         st.subheader("YAML Track Context")
-        st.caption("Primary editable Track Context used for persistent track memory, prompt context, retrieval rewriting, and suggested updates.")
+        st.caption("Persistent track memory used for track-aware prompting, retrieval rewriting, and suggested updates.")
         st.text_input(
             "Track ID",
             key="track_context_track_id",
-            help="Persistent YAML track context identifier for the new editable flow.",
+            help="Persistent YAML track-memory identifier. Load an existing track or start a new one with this ID.",
         )
         st.checkbox(
             "Use Track Context",
             key="use_track_context",
-            help="Enable YAML-backed track context for direct asks and research workflows.",
+            help="Enable persistent YAML track memory for asks and research workflows.",
         )
         track_id = st.session_state.get("track_context_track_id", "").strip()
+        context_exists = bool(track_id) and query_service.track_context_service.exists(track_id)
+        sidebar_context = None
         if st.session_state.get("use_track_context") and track_id:
-            context = query_service.track_context_service.load_or_create(track_id)
-            with st.expander("Edit YAML Track Context", expanded=False):
+            sidebar_context = query_service.track_context_service.load_or_create(track_id)
+            status_title, status_caption = track_context_status(
+                use_track_context=True,
+                track_id=track_id,
+                existed_before_load=context_exists,
+                track_context=sidebar_context,
+            )
+            st.caption(status_title)
+            st.caption(status_caption)
+            with st.expander("Edit Persistent Track Context", expanded=False):
                 with st.form("track_context_editor", clear_on_submit=False, enter_to_submit=False):
-                    st.caption("Core Track Info")
+                    st.caption("Core Track Identity")
                     core_col_left, core_col_right = st.columns(2)
                     core_col_left.text_input(
                         "Name",
-                        value=context.track_name or "",
+                        value=sidebar_context.track_name or "",
                         key="track_context_track_name",
                     )
-                    core_col_right.text_input("Genre", value=context.genre or "", key="track_context_genre")
+                    core_col_right.text_input("Genre", value=sidebar_context.genre or "", key="track_context_genre")
                     detail_col_left, detail_col_right = st.columns(2)
                     detail_col_left.text_input(
                         "BPM",
-                        value="" if context.bpm is None else str(context.bpm),
+                        value="" if sidebar_context.bpm is None else str(sidebar_context.bpm),
                         key="track_context_bpm",
                     )
-                    detail_col_right.text_input("Key", value=context.key or "", key="track_context_key")
-                    st.caption("Current Working State")
+                    detail_col_right.text_input("Key", value=sidebar_context.key or "", key="track_context_key")
+                    st.caption("Current Production State")
                     focus_col_left, focus_col_right = st.columns(2)
                     stage_options = [""] + _TRACK_CONTEXT_CURRENT_STAGES
-                    current_stage = context.current_stage or ""
+                    current_stage = sidebar_context.current_stage or ""
                     focus_col_left.selectbox(
                         "Stage",
                         options=stage_options,
@@ -212,30 +228,30 @@ def _render_sidebar(
                     )
                     focus_col_right.text_input(
                         "Current Problem",
-                        value=context.current_problem or "",
+                        value=sidebar_context.current_problem or "",
                         key="track_context_current_problem",
                     )
                     st.text_input(
                         "Vibe (comma separated)",
-                        value=", ".join(context.vibe),
+                        value=", ".join(sidebar_context.vibe),
                         key="track_context_vibe",
                     )
                     st.caption("References, Issues, and Goals")
                     st.text_area(
                         "Reference Tracks (one per line)",
-                        value="\n".join(context.reference_tracks),
+                        value="\n".join(sidebar_context.reference_tracks),
                         key="track_context_reference_tracks",
                         height=70,
                     )
                     st.text_area(
                         "Known Issues (one per line)",
-                        value="\n".join(context.known_issues),
+                        value="\n".join(sidebar_context.known_issues),
                         key="track_context_known_issues",
                         height=70,
                     )
                     st.text_area(
                         "Goals (one per line)",
-                        value="\n".join(context.goals),
+                        value="\n".join(sidebar_context.goals),
                         key="track_context_goals",
                         height=70,
                     )
@@ -262,7 +278,23 @@ def _render_sidebar(
                     )
                     st.success("Track context saved.")
         elif st.session_state.get("use_track_context"):
-            st.caption("Enter a Track ID to load or create a persistent YAML track context.")
+            status_title, status_caption = track_context_status(
+                use_track_context=True,
+                track_id=track_id,
+                existed_before_load=False,
+                track_context=sidebar_context,
+            )
+            st.caption(status_title)
+            st.caption(status_caption)
+        else:
+            status_title, status_caption = track_context_status(
+                use_track_context=False,
+                track_id=track_id,
+                existed_before_load=False,
+                track_context=sidebar_context,
+            )
+            st.caption(status_title)
+            st.caption(status_caption)
 
         st.divider()
         st.subheader("App Readiness")
@@ -288,8 +320,8 @@ def _render_sidebar(
                 st.caption("Ollama reachability has not been checked yet.")
 
             st.caption(f"Stored chunks: {status.total_chunks_stored}")
-            st.caption(f"Chat model: {config.ollama_chat_model}")
-            st.caption(f"Embedding model: {config.ollama_embedding_model}")
+        st.caption(f"Chat provider/model: {config.chat_provider} / {_configured_chat_model(config)}")
+        st.caption(f"Embedding provider/model: {config.embedding_provider} / {_configured_embedding_model(config)}")
 
 
 def _render_ask_tab(
@@ -340,9 +372,10 @@ def _render_ask_tab(
         st.session_state["session_tasks"] = []
         st.session_state["last_query_response"] = None
         st.session_state["last_question"] = ""
-        st.session_state["active_chat_model"] = _DEFAULT_ACTIVE_CHAT_MODEL
-        st.session_state["active_chat_model_select"] = _DEFAULT_ACTIVE_CHAT_MODEL
-        st.session_state["active_chat_model_input"] = _DEFAULT_ACTIVE_CHAT_MODEL
+        default_chat_model = _default_active_chat_model(config)
+        st.session_state["active_chat_model"] = default_chat_model
+        st.session_state["active_chat_model_select"] = default_chat_model
+        st.session_state["active_chat_model_input"] = default_chat_model
         st.session_state["reset_ask_form"] = False
 
     if status is not None:
@@ -391,8 +424,8 @@ def _render_ask_tab(
             )
 
         with st.expander("Workflow Context", expanded=selected_workflow != CollaborationWorkflow.RESEARCH_SESSION):
-            st.caption("Legacy Markdown Track Context Path")
-            st.caption("Optional legacy path-based context. This is separate from the YAML Track Context controls in the sidebar.")
+            st.caption("Legacy Markdown Workflow Context")
+            st.caption("Optional path-based workflow context. This is separate from the YAML Track Context sidebar and is kept for backward compatibility.")
             legacy_tracks = TrackSelectorService().list_tracks(config.obsidian_vault_path)
             track_options = ["None"] + [track["name"] for track in legacy_tracks]
             selected_track = st.selectbox(
@@ -406,6 +439,10 @@ def _render_ask_tab(
                 help="Choose any project folder under Projects/ that contains track_context.md to fill the legacy markdown Track Context Path.",
             )
             _apply_legacy_track_selection(config, selected_track, legacy_tracks)
+            if selected_track != "None":
+                resolved_legacy_path = selected_track_path(selected_track, legacy_tracks)
+                if resolved_legacy_path:
+                    st.caption(f"Loaded legacy markdown context from `{resolved_legacy_path}`.")
             st.text_input(
                 "Track Context Path",
                 key="workflow_track_context_path",
@@ -480,10 +517,7 @@ def _render_ask_tab(
                 else st.session_state.get("active_chat_model_input", "").strip()
             ) or _DEFAULT_ACTIVE_CHAT_MODEL
             if available_chat_models:
-                selected_chat_model = _resolve_preferred_chat_model_name(
-                    selected_chat_model,
-                    available_chat_models,
-                )
+                selected_chat_model = _resolve_preferred_chat_model_name(selected_chat_model, available_chat_models)
             st.session_state["active_chat_model"] = selected_chat_model
 
         if st.session_state["retrieval_scope"] == RetrievalScope.KNOWLEDGE.value:
@@ -519,6 +553,17 @@ def _render_ask_tab(
 
     with main_col:
         _render_current_track_summary(active_track_context)
+        critique_status = critique_support_summary(
+            selected_workflow,
+            active_track_context,
+            (
+                st.session_state.get("last_query_response").retrieved_chunks
+                if isinstance(st.session_state.get("last_query_response"), QueryResponse)
+                else []
+            ),
+        )
+        if critique_status is not None:
+            _render_critique_support_panel(*critique_status)
         if chat_workspace_enabled:
             st.markdown("### Session Chat")
             st.caption("Read the latest turn above, then reply immediately below to keep the collaboration moving.")
@@ -661,7 +706,7 @@ def _render_ask_tab(
             st.write(response.answer)
             if response.track_context_suggestions is not None and response.track_context is not None:
                 st.markdown("#### Suggested Track Context Updates")
-                st.caption("These are review-only suggestions from the latest answer. They are not saved until you apply them.")
+                st.caption("These are suggested updates for persistent track memory from the latest answer. They are not saved until you apply them.")
                 with st.container(border=True):
                     for label, value in suggestion_groups(response.track_context_suggestions):
                         st.markdown(f"**{label}**")
@@ -927,19 +972,30 @@ def _active_yaml_track_context(query_service: QueryService):
 
 
 def _render_current_track_summary(track_context) -> None:
-    title, rows = current_track_summary(track_context)
+    title, caption, rows = current_track_summary(
+        track_context,
+        use_track_context=st.session_state.get("use_track_context", True),
+        track_id=st.session_state.get("track_context_track_id", ""),
+    )
     with st.container(border=True):
-        st.markdown("### Current Track")
+        st.markdown(f"### {title}")
+        st.caption(caption)
         if not rows:
-            st.caption(title)
             return
-        st.caption(title)
         left_col, right_col = st.columns(2)
         midpoint = (len(rows) + 1) // 2
         for label, value in rows[:midpoint]:
             left_col.write(f"**{label}:** {value}")
         for label, value in rows[midpoint:]:
             right_col.write(f"**{label}:** {value}")
+
+
+def _render_critique_support_panel(title: str, lines: list[str]) -> None:
+    with st.container(border=True):
+        st.markdown("### Critique Context")
+        st.caption(title)
+        for line in lines:
+            st.write(f"- {line}")
 
 
 def _render_ingest_tab(ingestion_service: IngestionService) -> None:
@@ -1251,7 +1307,7 @@ def _render_index_tab(index_service: IndexService, status: IndexResponse | None)
         metric_cols[0].metric("Stored chunks", status.total_chunks_stored)
         metric_cols[1].metric("Index compatible", "Yes" if status.index_compatible else "No")
         metric_cols[2].metric("Ready", "Yes" if status.ready else "No")
-        metric_cols[3].metric("Ollama", "Reachable" if status.ollama_reachable else "Unavailable")
+        metric_cols[3].metric("Embeddings Backend", "Reachable" if status.ollama_reachable else "Unavailable")
 
         if status.ready:
             st.success("The assistant is ready to answer questions.")
@@ -1301,8 +1357,8 @@ def _render_settings_tab(config: AppConfig, status: IndexResponse | None, status
     )
     st.subheader("Active Models")
     model_cols = st.columns(2)
-    model_cols[0].write(f"Chat model: `{active_chat_model}`")
-    model_cols[1].write(f"Embedding model: `{config.ollama_embedding_model}`")
+    model_cols[0].write(f"Chat provider/model: `{config.chat_provider}` / `{active_chat_model}`")
+    model_cols[1].write(f"Embedding provider/model: `{config.embedding_provider}` / `{_configured_embedding_model(config)}`")
 
     st.subheader("Paths and Status")
     if status is None:
@@ -1557,9 +1613,9 @@ def _init_session_state(config: AppConfig) -> None:
         "path_filter": "",
         "tag_filter": "",
         "save_title": "",
-        "active_chat_model": _DEFAULT_ACTIVE_CHAT_MODEL,
-        "active_chat_model_select": _DEFAULT_ACTIVE_CHAT_MODEL,
-        "active_chat_model_input": _DEFAULT_ACTIVE_CHAT_MODEL,
+        "active_chat_model": _default_active_chat_model(config),
+        "active_chat_model_select": _default_active_chat_model(config),
+        "active_chat_model_input": _default_active_chat_model(config),
         "top_k": config.top_k_results,
         "enable_reranking": config.enable_reranking,
         "include_linked": config.enable_linked_note_expansion,
@@ -1633,10 +1689,14 @@ def _config_from_session(config: AppConfig) -> AppConfig:
 def _sync_active_chat_model_with_available_models(config: AppConfig) -> None:
     available_chat_models, _ = list_available_chat_models(config)
     if not available_chat_models:
+        default_chat_model = _default_active_chat_model(config)
+        st.session_state["active_chat_model"] = st.session_state.get("active_chat_model", default_chat_model) or default_chat_model
+        st.session_state["active_chat_model_select"] = st.session_state.get("active_chat_model_select", default_chat_model) or default_chat_model
+        st.session_state["active_chat_model_input"] = st.session_state.get("active_chat_model_input", default_chat_model) or default_chat_model
         return
 
     resolved_model = _resolve_preferred_chat_model_name(
-        st.session_state.get("active_chat_model", _DEFAULT_ACTIVE_CHAT_MODEL),
+        st.session_state.get("active_chat_model", _default_active_chat_model(config)),
         available_chat_models,
     )
     st.session_state["active_chat_model"] = resolved_model
@@ -1661,6 +1721,22 @@ _TRACK_CONTEXT_CURRENT_STAGES = [
     "mastering",
     "finalizing",
 ]
+
+def _default_active_chat_model(config: AppConfig) -> str:
+    if config.chat_provider.strip().lower() == "openai":
+        return config.openai_chat_model.strip() or "openai"
+    return _DEFAULT_ACTIVE_CHAT_MODEL
+
+
+def _configured_chat_model(config: AppConfig) -> str:
+    if config.chat_provider.strip().lower() == "openai":
+        return config.openai_chat_model.strip() or "(not configured)"
+    return config.ollama_chat_model
+
+
+def _configured_embedding_model(config: AppConfig) -> str:
+    return config.ollama_embedding_model
+
 
 _DEFAULT_ACTIVE_CHAT_MODEL = "deepseek"
 

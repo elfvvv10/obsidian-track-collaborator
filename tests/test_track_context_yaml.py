@@ -332,9 +332,11 @@ class TrackContextPromptTests(unittest.TestCase):
             )
 
             self.assertIn("professional electronic music producer giving structured track critique", payload.system_prompt)
-            self.assertIn("1. What is working", payload.system_prompt)
-            self.assertIn("5. Optional production experiments", payload.system_prompt)
-            self.assertIn("known issues, goals, and current problem", payload.system_prompt)
+            self.assertIn("Use Track Context only for long-term track identity and current production state", payload.system_prompt)
+            self.assertIn("Respond using these headings exactly:", payload.system_prompt)
+            self.assertIn("Overall Assessment", payload.system_prompt)
+            self.assertIn("Arrangement / Energy Flow", payload.system_prompt)
+            self.assertIn("Recommended Next Changes", payload.system_prompt)
             self.assertIn("BEGIN INTERNAL TRACK CONTEXT", payload.system_prompt)
 
     def test_non_critique_workflow_does_not_add_structured_critique_instructions(self) -> None:
@@ -355,7 +357,66 @@ class TrackContextPromptTests(unittest.TestCase):
             )
 
             self.assertNotIn("professional electronic music producer giving structured track critique", payload.system_prompt)
-            self.assertNotIn("1. What is working", payload.system_prompt)
+            self.assertNotIn("Overall Assessment", payload.system_prompt)
+
+    def test_critique_workflow_uses_arrangement_evidence_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            payload = PromptService(make_config(root)).build_prompt_payload(
+                "Critique this track.",
+                [
+                    RetrievedChunk(
+                        text=(
+                            "# S2 - First Drop\n\n"
+                            "Track: Moonlit Driver\n"
+                            "Bars: 33-48\n"
+                            "Energy: 7\n"
+                            "## Key Elements\n- rolling bass\n"
+                        ),
+                        metadata={
+                            "note_title": "Moonlit Driver Arrangement",
+                            "source_path": "Projects/Current Tracks/Moonlit Driver/arrangement.md",
+                            "source_type": "track_arrangement",
+                            "heading_context": "S2 - First Drop",
+                            "arrangement_track_name": "Moonlit Driver",
+                            "arrangement_section_name": "First Drop",
+                            "arrangement_energy": 7,
+                        },
+                    )
+                ],
+                web_results=[],
+                retrieval_mode=RetrievalMode.LOCAL_ONLY,
+                answer_mode=AnswerMode.BALANCED,
+                local_retrieval_weak=False,
+                collaboration_workflow=CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE,
+                track_id="moonlit_driver",
+                use_track_context=True,
+                track_context=TrackContext(track_id="moonlit_driver", track_name="Moonlit Driver"),
+            )
+
+            self.assertIn("Arrangement evidence is available.", payload.system_prompt)
+            self.assertIn("Arrangement evidence available:", payload.system_prompt)
+            self.assertIn("First Drop | Bars 33-48 | Energy 7", payload.system_prompt)
+
+    def test_critique_workflow_gracefully_falls_back_without_arrangement_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            payload = PromptService(make_config(root)).build_prompt_payload(
+                "Critique this track.",
+                [],
+                web_results=[],
+                retrieval_mode=RetrievalMode.LOCAL_ONLY,
+                answer_mode=AnswerMode.BALANCED,
+                local_retrieval_weak=False,
+                collaboration_workflow=CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE,
+            )
+
+            self.assertIn("Structured arrangement evidence is not available.", payload.system_prompt)
+            self.assertIn("section-level judgments are limited", payload.system_prompt)
 
 
 class TrackContextQueryAndSaveTests(unittest.TestCase):

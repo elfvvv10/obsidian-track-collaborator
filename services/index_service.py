@@ -7,7 +7,8 @@ from dataclasses import replace
 from config import AppConfig
 from chunker import chunk_notes
 from embeddings import OllamaEmbeddingClient
-from services.common import check_ollama_status, ensure_index_compatible, resolve_note_links
+from model_provider import create_embedding_client, provider_status
+from services.common import ensure_index_compatible, resolve_note_links
 from services.models import IndexResponse
 from utils import Chunk, Note, get_logger
 from vault_loader import load_notes
@@ -32,7 +33,10 @@ class IndexService:
         notes = _classify_notes(notes, self.config)
         resolve_note_links(notes)
 
-        embedding_client = OllamaEmbeddingClient(self.config)
+        embedding_client = create_embedding_client(
+            self.config,
+            client_cls=OllamaEmbeddingClient,
+        )
         vector_store = VectorStore(self.config)
         if reset_store:
             logger.info("Resetting Chroma collection")
@@ -95,8 +99,9 @@ class IndexService:
             )
 
         logger.info(
-            "Generating embeddings for %s updated chunk(s) with Ollama model '%s'",
+            "Generating embeddings for %s updated chunk(s) with %s provider model '%s'",
             len(chunks_to_index),
+            self.config.embedding_provider,
             self.config.ollama_embedding_model,
         )
         embeddings = embedding_client.embed_texts([chunk.text for chunk in chunks_to_index])
@@ -122,10 +127,7 @@ class IndexService:
     def get_status(self) -> IndexResponse:
         """Return lightweight index status for CLI or UI display."""
         vector_store = VectorStore(self.config)
-        ollama_reachable, ollama_status_message = check_ollama_status(
-            self.config.ollama_base_url,
-            timeout_seconds=min(self.config.ollama_timeout_seconds, 5),
-        )
+        ollama_reachable, ollama_status_message = provider_status(self.config)
         chunk_count = vector_store.count()
         index_compatible = vector_store.is_index_compatible()
         return IndexResponse(

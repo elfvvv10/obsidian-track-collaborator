@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from config import AppConfig
-from embeddings import OllamaEmbeddingClient
+from model_clients import EmbeddingClient
 from reranker import rerank_chunks
 from services.models import RetrievalScope
 from utils import RetrievalFilters, RetrievalOptions, RetrievedChunk
@@ -30,7 +30,7 @@ class Retriever:
     def __init__(
         self,
         config: AppConfig,
-        embedding_client: OllamaEmbeddingClient,
+        embedding_client: EmbeddingClient,
         vector_store: VectorStore,
     ) -> None:
         self.config = config

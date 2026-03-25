@@ -22,6 +22,11 @@ class AppConfig:
     ollama_chat_model: str
     ollama_embedding_model: str
     top_k_results: int
+    chat_provider: str = "ollama"
+    embedding_provider: str = "ollama"
+    openai_api_key: str = ""
+    openai_chat_model: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
     chunk_size: int = 1000
     chunk_overlap: int = 150
     retrieval_candidate_multiplier: int = 2
@@ -93,9 +98,14 @@ def load_config() -> AppConfig:
     vault_path = _required_path_env("OBSIDIAN_VAULT_PATH", must_exist=True, directory_only=True)
     output_path = _required_path_env("OBSIDIAN_OUTPUT_PATH", must_exist=False, directory_only=True)
     chroma_path = _required_path_env("CHROMA_DB_PATH", must_exist=False, directory_only=True)
+    chat_provider = _choice_env("CHAT_PROVIDER", default="ollama", choices={"ollama", "openai"})
+    embedding_provider = _choice_env("EMBEDDING_PROVIDER", default="ollama", choices={"ollama", "openai"})
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").strip().rstrip("/")
     chat_model = os.getenv("OLLAMA_CHAT_MODEL", "deepseek").strip()
     embedding_model = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text").strip()
+    openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    openai_chat_model = os.getenv("OPENAI_CHAT_MODEL", "").strip()
+    openai_base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip().rstrip("/")
     top_k_results = _required_int_env("TOP_K_RESULTS", default=3, minimum=1)
     chunk_size = _required_int_env("CHUNK_SIZE", default=1000, minimum=100)
     chunk_overlap = _required_int_env("CHUNK_OVERLAP", default=150, minimum=0)
@@ -173,9 +183,14 @@ def load_config() -> AppConfig:
         obsidian_vault_path=vault_path,
         obsidian_output_path=output_path,
         chroma_db_path=chroma_path,
+        chat_provider=chat_provider,
+        embedding_provider=embedding_provider,
         ollama_base_url=base_url,
         ollama_chat_model=chat_model,
         ollama_embedding_model=embedding_model,
+        openai_api_key=openai_api_key,
+        openai_chat_model=openai_chat_model,
+        openai_base_url=openai_base_url,
         top_k_results=top_k_results,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,

@@ -7,6 +7,8 @@ from dataclasses import replace
 from config import AppConfig
 from embeddings import OllamaEmbeddingClient
 from llm import OllamaChatClient
+from model_clients import ChatModelClient
+from model_provider import create_chat_client, create_embedding_client
 from retriever import Retriever, RetrievalDebugResult
 from saver import save_answer
 from services.common import ensure_index_compatible
@@ -81,12 +83,15 @@ class QueryService:
         vector_store = self.vector_store_cls(self.config)
         ensure_index_compatible(vector_store)
 
-        embedding_client = self.embedding_client_cls(self.config)
+        embedding_client = create_embedding_client(
+            self.config,
+            client_cls=self.embedding_client_cls,
+        )
         retriever = self.retriever_cls(self.config, embedding_client, vector_store)
-        chat_client = _build_chat_client(
-            self.chat_client_cls,
+        chat_client = create_chat_client(
             self.config,
             model_override=request.chat_model_override,
+            client_cls=self.chat_client_cls,
         )
         web_search_service = self.web_search_service_cls(self.config)
         prompt_service = self.prompt_service_cls(self.config)
@@ -604,29 +609,10 @@ class QueryService:
         )
 
 
-def _build_chat_client(
-    chat_client_cls: type[OllamaChatClient],
-    config: AppConfig,
-    *,
-    model_override: str | None,
-) -> OllamaChatClient:
-    """Instantiate a chat client with optional model override and test-stub compatibility."""
-    if model_override:
-        try:
-            client = chat_client_cls(config, model_override=model_override)
-            setattr(client, "model", model_override)
-            return client
-        except TypeError:
-            client = chat_client_cls(config)
-            setattr(client, "model", model_override)
-            return client
-    return chat_client_cls(config)
-
-
 def _build_answer_result(
     question: str,
     chunks: list[RetrievedChunk],
-    chat_client: OllamaChatClient,
+    chat_client: ChatModelClient,
     *,
     prompt_service: PromptService,
     web_results: list[WebSearchResult] | None = None,

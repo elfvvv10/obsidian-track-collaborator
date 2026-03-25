@@ -6,6 +6,8 @@ import re
 
 from config import AppConfig
 from llm import OllamaChatClient
+from model_clients import ChatModelClient
+from model_provider import create_chat_client
 from saver import save_answer
 from services.music_workflow_service import MusicWorkflowService
 from services.models import (
@@ -50,10 +52,10 @@ class ResearchService:
         """Run a bounded multi-step research workflow and return structured results."""
         query_service = self.query_service_cls(self.config)
         prompt_service = self.prompt_service_cls(self.config)
-        chat_client = _build_chat_client(
-            self.chat_client_cls,
+        chat_client = create_chat_client(
             self.config,
             model_override=request.chat_model_override,
+            client_cls=self.chat_client_cls,
         )
         workflow_plan = self.music_workflow_service.build_research_plan(request)
         track_context = None
@@ -208,7 +210,7 @@ class ResearchService:
         *,
         answer_mode: AnswerMode,
         max_subquestions: int,
-        chat_client: OllamaChatClient,
+        chat_client: ChatModelClient,
         prompt_service: PromptService,
         domain_profile: DomainProfile,
         workflow_input: WorkflowInput,
@@ -241,7 +243,7 @@ class ResearchService:
         *,
         answer_mode: AnswerMode,
         retrieval_mode: RetrievalMode,
-        chat_client: OllamaChatClient,
+        chat_client: ChatModelClient,
         prompt_service: PromptService,
         domain_profile: DomainProfile,
         workflow_input: WorkflowInput,
@@ -300,25 +302,6 @@ class ResearchService:
             ),
             [],
         )
-
-
-def _build_chat_client(
-    chat_client_cls: type[OllamaChatClient],
-    config: AppConfig,
-    *,
-    model_override: str | None,
-) -> OllamaChatClient:
-    """Instantiate a chat client with optional model override and test-stub compatibility."""
-    if model_override:
-        try:
-            client = chat_client_cls(config, model_override=model_override)
-            setattr(client, "model", model_override)
-            return client
-        except TypeError:
-            client = chat_client_cls(config)
-            setattr(client, "model", model_override)
-            return client
-    return chat_client_cls(config)
 
 
 def _parse_subquestions(raw_plan: str, *, max_subquestions: int) -> list[str]:

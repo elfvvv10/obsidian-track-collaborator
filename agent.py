@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from llm import OllamaChatClient
+from model_clients import ChatModelClient
 from retriever import Retriever
 from services.models import RetrievalScope
 from utils import AnswerResult, RetrievalFilters, RetrievalOptions
@@ -11,7 +11,7 @@ from utils import AnswerResult, RetrievalFilters, RetrievalOptions
 class ResearchAgent:
     """Retrieve note context and generate a grounded answer."""
 
-    def __init__(self, retriever: Retriever, chat_client: OllamaChatClient) -> None:
+    def __init__(self, retriever: Retriever, chat_client: ChatModelClient) -> None:
         self.retriever = retriever
         self.chat_client = chat_client
 

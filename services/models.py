@@ -224,15 +224,6 @@ class TrackContext:
 
 
 @dataclass(slots=True)
-class ArrangementLayerState:
-    """A single layer state inside an arrangement section."""
-
-    layer: str
-    state: str
-    notes: str | None = None
-
-
-@dataclass(slots=True)
 class ArrangementSectionIndexEntry:
     """A lightweight row from the arrangement section index."""
 
@@ -247,26 +238,26 @@ class ArrangementSectionIndexEntry:
 
 @dataclass(slots=True)
 class ArrangementSection:
-    """A parsed arrangement section with musical state and problems."""
+    """A parsed arrangement section with timeline, layers, and section-specific guidance."""
 
     id: str
     name: str
-    bars_text: str | None = None
     start_bar: int | None = None
     end_bar: int | None = None
     energy: int | None = None
-    purpose: str | None = None
-    themes: list[str] = field(default_factory=list)
-    active_layers: list[ArrangementLayerState] = field(default_factory=list)
-    transitions: list[str] = field(default_factory=list)
+    elements: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
     issues: list[str] = field(default_factory=list)
+    purpose: str | None = None
 
 
 @dataclass(slots=True)
 class ArrangementDocument:
-    """A parsed track arrangement document from markdown."""
+    """A parsed track arrangement document focused on structural track arrangement."""
 
+    track_id: str | None = None
     track_name: str | None = None
+    total_bars: int | None = None
     genre: str | None = None
     bpm: int | None = None
     key: str | None = None

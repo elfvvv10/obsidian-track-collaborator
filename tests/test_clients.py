@@ -10,7 +10,7 @@ from requests.exceptions import RequestException
 
 from config import AppConfig
 from embeddings import OllamaEmbeddingClient
-from llm import OllamaChatClient, list_available_chat_models
+from llm import OllamaChatClient, OpenAIChatClient, list_available_chat_models
 
 
 def make_config() -> AppConfig:
@@ -110,3 +110,36 @@ class OllamaChatClientTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "empty chat response"):
                 client.answer_question("What is this?", [])
+
+
+class OpenAIChatClientTests(unittest.TestCase):
+    def test_openai_chat_client_uses_model_override(self) -> None:
+        config = make_config()
+        config.openai_api_key = "test-key"
+        config.openai_chat_model = "gpt-4o-mini"
+
+        client = OpenAIChatClient(config, model_override="gpt-5-mini")
+        self.assertEqual(client.model, "gpt-5-mini")
+
+    def test_openai_chat_client_returns_content(self) -> None:
+        config = make_config()
+        config.openai_api_key = "test-key"
+        config.openai_chat_model = "gpt-4o-mini"
+        client = OpenAIChatClient(config)
+
+        with patch(
+            "llm.requests.request",
+            return_value=FakeResponse(
+                200,
+                {"choices": [{"message": {"content": "Grounded answer"}}]},
+            ),
+        ):
+            answer = client.answer_with_prompt(type("PromptPayloadStub", (), {"system_prompt": "sys", "user_prompt": "user"})())
+
+        self.assertEqual(answer, "Grounded answer")
+
+    def test_openai_chat_client_requires_api_key(self) -> None:
+        config = make_config()
+        config.openai_chat_model = "gpt-4o-mini"
+        with self.assertRaisesRegex(RuntimeError, "OPENAI_API_KEY"):
+            OpenAIChatClient(config)

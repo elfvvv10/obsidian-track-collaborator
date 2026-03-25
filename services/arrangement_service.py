@@ -7,7 +7,6 @@ import re
 from metadata_parser import parse_markdown_metadata
 from services.models import (
     ArrangementDocument,
-    ArrangementLayerState,
     ArrangementSection,
     ArrangementSectionIndexEntry,
 )
@@ -43,7 +42,6 @@ arrangement_version: 1
 Bars: 1-8
 Energy: 2
 Purpose: establish groove, low commitment, DJ-friendly intro
-Themes: none
 
 ### Active Layers
 | Layer | State | Notes |
@@ -82,7 +80,9 @@ class ArrangementService:
         sections = self._parse_sections(body, section_index)
 
         return ArrangementDocument(
+            track_id=_clean_text(frontmatter.get("track_id")),
             track_name=_clean_text(frontmatter.get("track_name")),
+            total_bars=_calculate_total_bars(section_index, sections),
             genre=_clean_text(frontmatter.get("genre")),
             bpm=_coerce_int(frontmatter.get("bpm")),
             key=_clean_text(frontmatter.get("key")),
@@ -98,11 +98,13 @@ class ArrangementService:
         """Render arrangement overview content for arrangement-aware retrieval."""
         lines = ["# Arrangement Overview"]
         summary_lines = [
+            f"Track ID: {arrangement.track_id}" if arrangement.track_id else "",
             f"Track: {arrangement.track_name}" if arrangement.track_name else "",
             f"Genre: {arrangement.genre}" if arrangement.genre else "",
             f"BPM: {arrangement.bpm}" if arrangement.bpm is not None else "",
             f"Key: {arrangement.key}" if arrangement.key else "",
             f"Status: {arrangement.status}" if arrangement.status else "",
+            f"Total Bars: {arrangement.total_bars}" if arrangement.total_bars is not None else "",
             (
                 f"Arrangement Version: {arrangement.arrangement_version}"
                 if arrangement.arrangement_version is not None
@@ -131,22 +133,20 @@ class ArrangementService:
         lines = [heading]
         context_lines = [
             f"Track: {arrangement.track_name}" if arrangement.track_name else "",
-            f"Genre: {arrangement.genre}" if arrangement.genre else "",
-            f"Bars: {section.bars_text}" if section.bars_text else "",
+            (
+                f"Bars: {section.start_bar}-{section.end_bar}"
+                if section.start_bar is not None and section.end_bar is not None
+                else ""
+            ),
             f"Energy: {section.energy}" if section.energy is not None else "",
             f"Purpose: {section.purpose}" if section.purpose else "",
         ]
         if any(context_lines):
             lines.extend(["", *[line for line in context_lines if line]])
-        if section.themes:
-            lines.extend(["", f"Themes: {', '.join(section.themes)}"])
-        if section.active_layers:
-            lines.extend(["", "## Active Layers"])
-            for layer in section.active_layers:
-                detail = f" - {layer.notes}" if layer.notes else ""
-                lines.append(f"- {layer.layer}: {layer.state}{detail}")
-        if section.transitions:
-            lines.extend(["", "## Transitions / Automation", *[f"- {item}" for item in section.transitions]])
+        if section.elements:
+            lines.extend(["", "## Key Elements", *[f"- {item}" for item in section.elements]])
+        if section.notes:
+            lines.extend(["", "## Notes", *[f"- {item}" for item in section.notes]])
         if section.issues:
             lines.extend(["", "## Issues / Opportunities", *[f"- {item}" for item in section.issues]])
         return "\n".join(lines).strip()
@@ -190,28 +190,31 @@ class ArrangementService:
             index_entry = section_rows.get(section_id.lower())
             bars_text = _first_non_empty(_clean_text(fields.get("bars")), index_entry.bars if index_entry else "")
             start_bar, end_bar = _parse_bar_range(bars_text)
-            themes = _split_themes(fields.get("themes"))
-            if not themes and index_entry:
-                themes = list(index_entry.themes)
             subsection_map = _extract_subsections(block)
+            elements = self._parse_elements(
+                subsection_map.get("active layers", ""),
+                themes=_split_themes(fields.get("themes")) or (list(index_entry.themes) if index_entry else []),
+            )
+            notes = _merge_unique_items(
+                _extract_bullets(
+                    _first_non_empty(
+                        subsection_map.get("transitions / automation", ""),
+                        subsection_map.get("transitions", ""),
+                        subsection_map.get("automation", ""),
+                    )
+                ),
+                _extract_bullets(subsection_map.get("notes", "")),
+            )
             sections.append(
                 ArrangementSection(
                     id=section_id,
                     name=section_name or (index_entry.name if index_entry else f"Section {len(sections) + 1}"),
-                    bars_text=bars_text or None,
                     start_bar=start_bar or (index_entry.start_bar if index_entry else None),
                     end_bar=end_bar or (index_entry.end_bar if index_entry else None),
                     energy=_coerce_int(fields.get("energy")) or (index_entry.energy if index_entry else None),
+                    elements=elements,
+                    notes=notes,
                     purpose=_clean_text(fields.get("purpose")),
-                    themes=themes,
-                    active_layers=self._parse_active_layers(subsection_map.get("active layers", "")),
-                    transitions=_extract_bullets(
-                        _first_non_empty(
-                            subsection_map.get("transitions / automation", ""),
-                            subsection_map.get("transitions", ""),
-                            subsection_map.get("automation", ""),
-                        )
-                    ),
                     issues=_extract_bullets(
                         _first_non_empty(
                             subsection_map.get("issues / opportunities", ""),
@@ -223,22 +226,30 @@ class ArrangementService:
             )
         return sections
 
-    def _parse_active_layers(self, block: str) -> list[ArrangementLayerState]:
+    def _parse_elements(self, block: str, *, themes: list[str]) -> list[str]:
         rows = _parse_markdown_table(block)
-        layers: list[ArrangementLayerState] = []
+        elements: list[str] = []
         for row in rows:
             layer = _clean_text(row.get("layer"))
             state = _clean_text(row.get("state"))
-            if not layer and not state:
+            if not layer:
                 continue
-            layers.append(
-                ArrangementLayerState(
-                    layer=layer or "unknown",
-                    state=state or "unspecified",
-                    notes=_clean_text(row.get("notes")) or None,
-                )
-            )
-        return layers
+            notes = _clean_text(row.get("notes"))
+            normalized_state = (state or "").lower()
+            if normalized_state in {"", "on", "active", "full"}:
+                label = layer
+            elif normalized_state == "off":
+                continue
+            else:
+                label = f"{layer} ({state})"
+            if notes:
+                label = f"{label} - {notes}"
+            elements.append(label)
+        for theme in themes:
+            if theme.lower() == "none":
+                continue
+            elements.append(f"Theme: {theme}")
+        return _merge_unique_items(elements)
 
     def _extract_heading_block(self, body: str, heading: str) -> str:
         normalized_heading = heading.strip().lower()
@@ -422,3 +433,29 @@ def _first_non_empty(*values: str) -> str:
         if value and value.strip():
             return value.strip()
     return ""
+
+
+def _calculate_total_bars(
+    section_index: list[ArrangementSectionIndexEntry],
+    sections: list[ArrangementSection],
+) -> int | None:
+    indexed_end_bars = [entry.end_bar for entry in section_index if entry.end_bar is not None]
+    section_end_bars = [section.end_bar for section in sections if section.end_bar is not None]
+    all_end_bars = indexed_end_bars + section_end_bars
+    return max(all_end_bars) if all_end_bars else None
+
+
+def _merge_unique_items(*groups: list[str]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for item in group:
+            cleaned = _clean_text(item)
+            if not cleaned:
+                continue
+            normalized = cleaned.lower()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            merged.append(cleaned)
+    return merged

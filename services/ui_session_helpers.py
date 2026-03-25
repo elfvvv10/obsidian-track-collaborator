@@ -2,27 +2,115 @@
 
 from __future__ import annotations
 
-from services.models import TrackContext, TrackContextSuggestions
+from services.models import CollaborationWorkflow, TrackContext, TrackContextSuggestions
+from utils import RetrievedChunk
 
 
-def current_track_summary(track_context: TrackContext | None) -> tuple[str, list[tuple[str, str]]]:
+def current_track_summary(
+    track_context: TrackContext | None,
+    *,
+    use_track_context: bool = True,
+    track_id: str = "",
+) -> tuple[str, str, list[tuple[str, str]]]:
     """Return a compact current-track summary suitable for UI rendering."""
     if track_context is None:
-        return "No active YAML Track Context", []
+        if use_track_context and track_id.strip():
+            return (
+                "Current Track",
+                f"Track memory is enabled for `{track_id.strip()}`, but no YAML Track Context is loaded yet.",
+                [],
+            )
+        if use_track_context:
+            return (
+                "Current Track",
+                "Track memory is enabled, but no Track ID is active yet.",
+                [],
+            )
+        return ("Current Track", "No active YAML Track Context", [])
 
+    display_name = track_context.track_name or track_context.track_id
     rows: list[tuple[str, str]] = [("Track ID", track_context.track_id)]
     optional_fields = (
         ("Track Name", track_context.track_name),
         ("Genre", track_context.genre),
         ("BPM", str(track_context.bpm) if track_context.bpm is not None else ""),
         ("Key", track_context.key),
+        ("Vibe", ", ".join(track_context.vibe)),
+        ("Reference Tracks", ", ".join(track_context.reference_tracks)),
         ("Current Stage", track_context.current_stage),
         ("Current Problem", track_context.current_problem),
     )
     for label, value in optional_fields:
         if value:
             rows.append((label, value))
-    return "Active YAML Track Context", rows
+    return ("Current Track", f"Using persistent Track Context for `{display_name}`.", rows)
+
+
+def track_context_status(
+    *,
+    use_track_context: bool,
+    track_id: str,
+    existed_before_load: bool,
+    track_context: TrackContext | None,
+) -> tuple[str, str]:
+    """Return compact YAML track-memory status text for the sidebar."""
+    if not use_track_context:
+        return ("Track memory is off.", "Enable YAML Track Context to load or create persistent track memory.")
+    if not track_id.strip():
+        return ("Track memory is on, but no Track ID is selected.", "Enter a Track ID to load an existing track or start a new one.")
+    if track_context is None:
+        return (
+            f"Track memory is waiting for `{track_id.strip()}`.",
+            "The track will load after a Track ID is provided.",
+        )
+    if existed_before_load:
+        display_name = track_context.track_name or track_context.track_id
+        return (
+            f"Loaded existing track memory for `{display_name}`.",
+            "You are editing a saved YAML Track Context.",
+        )
+    return (
+        f"Started a new track memory for `{track_context.track_id}`.",
+        "This is a fresh YAML Track Context. Add details and save when ready.",
+    )
+
+
+def critique_support_summary(
+    workflow: CollaborationWorkflow,
+    track_context: TrackContext | None,
+    chunks: list[RetrievedChunk] | None = None,
+) -> tuple[str, list[str]] | None:
+    """Describe whether critique is general, track-aware, or arrangement-aware."""
+    if workflow != CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE:
+        return None
+
+    arrangement_in_play = any(
+        str(chunk.metadata.get("source_type", "")).strip().lower() == "track_arrangement"
+        for chunk in (chunks or [])
+    )
+    if track_context is None:
+        return (
+            "General critique mode",
+            [
+                "No YAML Track Context is active, so critique will rely on the question and retrieved evidence.",
+                "Arrangement-aware support becomes available only when arrangement notes are retrieved.",
+            ],
+        )
+    if arrangement_in_play:
+        return (
+            "Track-aware critique with arrangement support",
+            [
+                f"Using persistent Track Context for `{track_context.track_name or track_context.track_id}`.",
+                "Arrangement notes were retrieved in the latest answer, so critique can reference sections and bars when useful.",
+            ],
+        )
+    return (
+        "Track-aware critique",
+        [
+            f"Using persistent Track Context for `{track_context.track_name or track_context.track_id}`.",
+            "Arrangement-aware support depends on retrieving track arrangement notes for this track.",
+        ],
+    )
 
 
 def suggestion_groups(

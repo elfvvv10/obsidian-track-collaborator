@@ -1,4 +1,4 @@
-"""Local Ollama chat client and prompt helpers."""
+"""Chat clients and prompt helpers."""
 
 from __future__ import annotations
 
@@ -193,6 +193,105 @@ def _format_ollama_error(response: Response) -> str:
     if error_message:
         return f"Ollama request failed: {error_message}"
     return f"Ollama request failed with status {response.status_code}."
+
+
+class OpenAIChatClient:
+    """Small wrapper around an OpenAI-compatible chat completions API."""
+
+    def __init__(self, config: AppConfig, *, model_override: str | None = None) -> None:
+        self.config = config
+        self.base_url = config.openai_base_url.rstrip("/")
+        self.api_key = config.openai_api_key.strip()
+        self.model = (model_override or config.openai_chat_model).strip()
+        self.timeout = config.ollama_timeout_seconds
+        if not self.api_key:
+            raise RuntimeError(
+                "OpenAI chat provider is selected, but OPENAI_API_KEY is missing."
+            )
+        if not self.model:
+            raise RuntimeError(
+                "OpenAI chat provider is selected, but OPENAI_CHAT_MODEL is missing."
+            )
+
+    def answer_with_prompt(self, prompt_payload: PromptPayload) -> str:
+        """Send a prepared prompt payload to an OpenAI-compatible chat endpoint."""
+        response = self._request(
+            "POST",
+            "/chat/completions",
+            json={
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": prompt_payload.system_prompt},
+                    {"role": "user", "content": prompt_payload.user_prompt},
+                ],
+            },
+        )
+        payload = response.json()
+        choices = payload.get("choices", [])
+        if not choices:
+            raise RuntimeError("OpenAI chat provider returned no choices.")
+        message = choices[0].get("message", {})
+        content = _extract_openai_message_text(message)
+        if not content:
+            raise RuntimeError("OpenAI chat provider returned an empty chat response.")
+        return content
+
+    def _request(self, method: str, endpoint: str, **kwargs: Any) -> Response:
+        headers = kwargs.pop("headers", {})
+        headers.update(
+            {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
+        )
+        try:
+            response = requests.request(
+                method,
+                f"{self.base_url}{endpoint}",
+                timeout=self.timeout,
+                headers=headers,
+                **kwargs,
+            )
+        except RequestException as exc:
+            raise RuntimeError(
+                "Could not reach the OpenAI chat provider. Check OPENAI_BASE_URL and network access."
+            ) from exc
+
+        if response.status_code >= 400:
+            raise RuntimeError(_format_openai_error(response))
+        return response
+
+
+def _extract_openai_message_text(message: dict[str, Any]) -> str:
+    """Extract plain text content from an OpenAI-compatible message payload."""
+    content = message.get("content", "")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        text_parts: list[str] = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "text":
+                text_value = str(item.get("text", "")).strip()
+                if text_value:
+                    text_parts.append(text_value)
+        return "\n".join(text_parts).strip()
+    return ""
+
+
+def _format_openai_error(response: Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+
+    error_payload = payload.get("error")
+    if isinstance(error_payload, dict):
+        error_message = str(error_payload.get("message", "")).strip()
+        if error_message:
+            return f"OpenAI chat request failed: {error_message}"
+    return f"OpenAI chat request failed with status {response.status_code}."
 
 
 def list_available_chat_models(config: AppConfig) -> tuple[list[str], str | None]:
