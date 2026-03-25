@@ -41,14 +41,12 @@ class TrackContextUtilsTests(unittest.TestCase):
     def test_normalize_track_context_applies_defaults_and_coercions(self) -> None:
         context = normalize_track_context(
             {
-                "workflow_mode": "invalid_mode",
                 "current_stage": "unsupported",
                 "bpm": "124.7",
             }
         )
 
         self.assertEqual(context.track_id, "default_track")
-        self.assertEqual(context.workflow_mode, "general")
         self.assertIsNone(context.current_stage)
         self.assertEqual(context.bpm, 124)
 
@@ -67,7 +65,6 @@ class TrackContextPersistenceTests(unittest.TestCase):
 
             created = service.load_or_create("moonlit_driver")
             self.assertEqual(created.track_id, "moonlit_driver")
-            self.assertEqual(created.workflow_mode, "general")
 
             updated = service.update_fields(
                 "moonlit_driver",
@@ -76,12 +73,12 @@ class TrackContextPersistenceTests(unittest.TestCase):
                     "genre": "progressive house",
                     "bpm": "124",
                     "vibe": ["driving", "emotional"],
-                    "sections": {"Intro": "Establish groove"},
+                    "current_problem": "drop lacks contrast",
                 },
             )
             self.assertEqual(updated.track_name, "Moonlit Driver")
             self.assertEqual(updated.bpm, 124)
-            self.assertEqual(updated.sections, {"Intro": "Establish groove"})
+            self.assertEqual(updated.current_problem, "drop lacks contrast")
 
             loaded = service.load("moonlit_driver")
             self.assertEqual(loaded.track_name, "Moonlit Driver")
@@ -92,7 +89,7 @@ class TrackContextPersistenceTests(unittest.TestCase):
             empty_path.write_text("", encoding="utf-8")
             empty_loaded = service.load("empty_track")
             self.assertEqual(empty_loaded.track_id, "empty_track")
-            self.assertEqual(empty_loaded.workflow_mode, "general")
+            self.assertIsNone(empty_loaded.current_problem)
 
 
 class TrackContextPromptTests(unittest.TestCase):
@@ -114,16 +111,15 @@ class TrackContextPromptTests(unittest.TestCase):
                 track_context=TrackContext(
                     track_id="moonlit_driver",
                     track_name="Moonlit Driver",
-                    workflow_mode="arrangement",
                     current_stage="arrangement",
-                    notes=["Shorten the intro."],
+                    current_problem="shorten the intro",
                 ),
             )
 
             self.assertIn("BEGIN INTERNAL TRACK CONTEXT", payload.system_prompt)
             self.assertIn("Track Id: moonlit_driver", payload.system_prompt)
             self.assertIn("Track Name: Moonlit Driver", payload.system_prompt)
-            self.assertIn("Shorten the intro.", payload.system_prompt)
+            self.assertIn("Current Problem: shorten the intro", payload.system_prompt)
             self.assertNotIn("Projects/Legacy", payload.system_prompt)
 
     def test_yaml_track_context_takes_precedence_over_legacy_markdown(self) -> None:
@@ -312,7 +308,7 @@ class TrackContextPromptTests(unittest.TestCase):
             self.assertNotIn("Genre: None", payload.system_prompt)
             self.assertNotIn("BPM: None", payload.system_prompt)
 
-    def test_track_critique_workflow_mode_adds_structured_critique_instructions(self) -> None:
+    def test_track_concept_critique_workflow_adds_structured_critique_instructions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             (root / "vault").mkdir()
@@ -324,12 +320,12 @@ class TrackContextPromptTests(unittest.TestCase):
                 retrieval_mode=RetrievalMode.LOCAL_ONLY,
                 answer_mode=AnswerMode.BALANCED,
                 local_retrieval_weak=False,
+                collaboration_workflow=CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE,
                 track_id="moonlit_driver",
                 use_track_context=True,
                 track_context=TrackContext(
                     track_id="moonlit_driver",
-                    workflow_mode="track_critique",
-                    current_section="first drop",
+                    current_problem="drop lacks contrast",
                     known_issues=["drop feels flat"],
                     goals=["stronger groove"],
                 ),
@@ -338,10 +334,10 @@ class TrackContextPromptTests(unittest.TestCase):
             self.assertIn("professional electronic music producer giving structured track critique", payload.system_prompt)
             self.assertIn("1. What is working", payload.system_prompt)
             self.assertIn("5. Optional production experiments", payload.system_prompt)
-            self.assertIn("known issues, goals, and current section", payload.system_prompt)
+            self.assertIn("known issues, goals, and current problem", payload.system_prompt)
             self.assertIn("BEGIN INTERNAL TRACK CONTEXT", payload.system_prompt)
 
-    def test_non_critique_workflow_mode_does_not_add_structured_critique_instructions(self) -> None:
+    def test_non_critique_workflow_does_not_add_structured_critique_instructions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             (root / "vault").mkdir()
@@ -355,10 +351,7 @@ class TrackContextPromptTests(unittest.TestCase):
                 local_retrieval_weak=False,
                 track_id="moonlit_driver",
                 use_track_context=True,
-                track_context=TrackContext(
-                    track_id="moonlit_driver",
-                    workflow_mode="arrangement",
-                ),
+                track_context=TrackContext(track_id="moonlit_driver"),
             )
 
             self.assertNotIn("professional electronic music producer giving structured track critique", payload.system_prompt)
@@ -509,7 +502,7 @@ class TrackContextQueryAndSaveTests(unittest.TestCase):
                     track_context=TrackContext(
                         track_id="moonlit_driver",
                         genre="progressive house",
-                        current_section="first drop",
+                        current_problem="drop feels flat",
                         known_issues=["drop feels flat"],
                         bpm=126,
                         key="A minor",
@@ -520,7 +513,7 @@ class TrackContextQueryAndSaveTests(unittest.TestCase):
             self.assertEqual(tracking["last_prompt"].user_prompt.count("Question: help with the bassline"), 1)
             self.assertEqual(
                 tracking["retrieval_query"],
-                "help with the bassline progressive house first drop drop feels flat 126 A minor",
+                "help with the bassline progressive house drop feels flat 126 A minor",
             )
             self.assertEqual(response.debug.rewritten_query, tracking["retrieval_query"])
 
@@ -532,7 +525,6 @@ class TrackContextQueryAndSaveTests(unittest.TestCase):
             track_context = TrackContext(
                 track_id="moonlit_driver",
                 track_name="Moonlit Driver",
-                workflow_mode="arrangement",
                 goals=["Finish the first drop"],
             )
 

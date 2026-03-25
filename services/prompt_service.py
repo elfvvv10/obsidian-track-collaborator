@@ -82,7 +82,10 @@ class PromptService:
         critique_instructions = ""
         if use_track_context and track_id and track_context is not None:
             track_context_text = self._format_track_context(track_context)
-            critique_instructions = self._format_critique_instructions(track_context)
+            critique_instructions = self._format_critique_instructions(
+                collaboration_workflow,
+                track_context,
+            )
         else:
             legacy_track_context = self.track_context_service.get_track_context(
                 collaboration_workflow,
@@ -140,7 +143,6 @@ class PromptService:
             "",
             "Track context summary:",
             f"- Track Id: {track_context.track_id}",
-            f"- Workflow Mode: {track_context.workflow_mode}",
         ]
         optional_fields = (
             ("Track Name", track_context.track_name),
@@ -148,7 +150,7 @@ class PromptService:
             ("BPM", track_context.bpm),
             ("Key", track_context.key),
             ("Current Stage", track_context.current_stage),
-            ("Current Section", track_context.current_section),
+            ("Current Problem", track_context.current_problem),
         )
         for label, value in optional_fields:
             if value is not None and str(value).strip():
@@ -161,20 +163,15 @@ class PromptService:
             lines.append(f"- Known Issues: {', '.join(track_context.known_issues)}")
         if track_context.goals:
             lines.append(f"- Goals: {', '.join(track_context.goals)}")
-        if track_context.sections:
-            section_summary = ", ".join(
-                f"{section}: {description}" for section, description in track_context.sections.items()
-            )
-            lines.append(f"- Sections: {section_summary}")
-        if track_context.notes:
-            lines.append("")
-            lines.append("Track context notes:")
-            lines.extend(track_context.notes)
         return "\n".join(lines)
 
-    def _format_critique_instructions(self, track_context: TrackContext) -> str:
+    def _format_critique_instructions(
+        self,
+        collaboration_workflow: CollaborationWorkflow,
+        track_context: TrackContext,
+    ) -> str:
         """Return structured critique instructions when critique mode is active."""
-        if track_context.workflow_mode != "track_critique":
+        if collaboration_workflow != CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE:
             return ""
         return (
             "You are acting as a professional electronic music producer giving structured track critique.\n\n"
@@ -185,7 +182,7 @@ class PromptService:
             "4. High-impact changes (prioritized)\n"
             "5. Optional production experiments\n\n"
             "Be specific to the track context. Avoid generic advice. "
-            "Prioritize feedback based on known issues, goals, and current section when available."
+            "Prioritize feedback based on known issues, goals, and current problem when available."
         )
 
     def build_research_plan_payload(
@@ -692,8 +689,14 @@ def _format_local_context(chunks: list[RetrievedChunk]) -> str:
         section_line = f" | Section: {heading_context}" if heading_context else ""
         arrangement_track_name = str(chunk.metadata.get("arrangement_track_name", "")).strip()
         arrangement_section_name = str(chunk.metadata.get("arrangement_section_name", "")).strip()
+        video_title = str(chunk.metadata.get("video_title", "")).strip()
+        video_section_title = str(chunk.metadata.get("video_section_title", "")).strip()
+        video_start_time = str(chunk.metadata.get("video_start_time", "")).strip()
+        video_end_time = str(chunk.metadata.get("video_end_time", "")).strip()
         if _is_saved_answer_chunk(chunk):
             source_kind = "Saved answer"
+        elif _is_video_chunk(chunk):
+            source_kind = "Video reference evidence"
         elif _is_imported_chunk(chunk):
             source_kind = "Imported reference evidence"
         elif _is_arrangement_chunk(chunk):
@@ -723,6 +726,12 @@ def _format_local_context(chunks: list[RetrievedChunk]) -> str:
             arrangement_lines.append(f"Arrangement Track: {arrangement_track_name}")
         if arrangement_section_name and arrangement_section_name.lower() != "arrangement overview":
             arrangement_lines.append(f"Arrangement Section: {arrangement_section_name}")
+        if video_title:
+            arrangement_lines.append(f"Video Title: {video_title}")
+        if video_section_title and video_section_title.lower() != "overview":
+            arrangement_lines.append(f"Video Section: {video_section_title}")
+        if video_start_time or video_end_time:
+            arrangement_lines.append(f"Video Timestamp: {video_start_time or '?'} - {video_end_time or '?'}")
         arrangement_block = "\n".join(arrangement_lines)
         if arrangement_block:
             arrangement_block = f"{arrangement_block}\n"
@@ -781,6 +790,10 @@ def _is_imported_chunk(chunk: RetrievedChunk) -> bool:
 
 def _is_arrangement_chunk(chunk: RetrievedChunk) -> bool:
     return str(chunk.metadata.get("source_type", "")).strip().lower() == "track_arrangement"
+
+
+def _is_video_chunk(chunk: RetrievedChunk) -> bool:
+    return str(chunk.metadata.get("source_type", "")).strip().lower() == "youtube_video"
 
 
 def _is_reference_chunk(chunk: RetrievedChunk) -> bool:

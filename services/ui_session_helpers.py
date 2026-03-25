@@ -16,9 +16,8 @@ def current_track_summary(track_context: TrackContext | None) -> tuple[str, list
         ("Genre", track_context.genre),
         ("BPM", str(track_context.bpm) if track_context.bpm is not None else ""),
         ("Key", track_context.key),
-        ("Workflow Mode", track_context.workflow_mode),
         ("Current Stage", track_context.current_stage),
-        ("Current Section", track_context.current_section),
+        ("Current Problem", track_context.current_problem),
     )
     for label, value in optional_fields:
         if value:
@@ -38,12 +37,10 @@ def suggestion_groups(
         groups.append(("Known Issues", suggestions.known_issues))
     if suggestions.goals:
         groups.append(("Goals", suggestions.goals))
-    if suggestions.notes:
-        groups.append(("Notes", suggestions.notes))
     if suggestions.current_stage:
         groups.append(("Current Stage", suggestions.current_stage))
-    if suggestions.current_section:
-        groups.append(("Current Section", suggestions.current_section))
+    if suggestions.current_problem:
+        groups.append(("Current Problem", suggestions.current_problem))
     return groups
 
 

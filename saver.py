@@ -190,7 +190,6 @@ def format_track_context_summary(track_context: TrackContext | None) -> str:
         "## Track Context",
         "",
         f"- Track ID: {track_context.track_id}",
-        f"- Workflow Mode: {track_context.workflow_mode}",
     ]
     optional_fields = (
         ("Track Name", track_context.track_name),
@@ -198,7 +197,7 @@ def format_track_context_summary(track_context: TrackContext | None) -> str:
         ("BPM", track_context.bpm),
         ("Key", track_context.key),
         ("Current Stage", track_context.current_stage),
-        ("Current Section", track_context.current_section),
+        ("Current Problem", track_context.current_problem),
     )
     for label, value in optional_fields:
         if value is not None and str(value).strip():
@@ -211,8 +210,6 @@ def format_track_context_summary(track_context: TrackContext | None) -> str:
         lines.append(f"- Known Issues: {', '.join(track_context.known_issues)}")
     if track_context.goals:
         lines.append(f"- Goals: {', '.join(track_context.goals)}")
-    if track_context.notes:
-        lines.append(f"- Notes: {' | '.join(track_context.notes)}")
     lines.append("")
     lines.append("")
     return "\n".join(lines)

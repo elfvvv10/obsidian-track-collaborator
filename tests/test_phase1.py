@@ -28,6 +28,33 @@ class RerankerTests(unittest.TestCase):
 
         self.assertEqual(reranked[0].metadata["note_title"], "Agents")
 
+    def test_reranker_can_promote_imported_note_title_match(self) -> None:
+        chunks = [
+            RetrievedChunk(
+                text="This arrangement uses low-energy intro layers and restrained transitions.",
+                metadata={
+                    "note_title": "Minimal Arrangement Reference",
+                    "source_path": "Knowledge/Arrangement/minimal.md",
+                    "content_category": "curated_knowledge",
+                },
+                distance_or_score=0.05,
+            ),
+            RetrievedChunk(
+                text="Producer workflow and mixing details.",
+                metadata={
+                    "note_title": "Boris Brejcha Tutorial Breakdown",
+                    "source_path": "Imports/YouTube Imports/Generic/boris.md",
+                    "content_category": "imported_knowledge",
+                    "source_kind": "imported_content",
+                },
+                distance_or_score=0.2,
+            ),
+        ]
+
+        reranked = rerank_chunks("boris brejcha", chunks)
+
+        self.assertEqual(reranked[0].metadata["note_title"], "Boris Brejcha Tutorial Breakdown")
+
 
 class PromptFormattingTests(unittest.TestCase):
     def test_build_prompt_includes_structured_context(self) -> None:

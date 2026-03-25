@@ -6,18 +6,6 @@ from collections.abc import Mapping
 
 from services.models import TrackContext
 
-
-VALID_WORKFLOW_MODES = {
-    "general",
-    "track_critique",
-    "composition",
-    "arrangement",
-    "sound_design",
-    "critique",
-    "mixing",
-    "research",
-}
-
 VALID_CURRENT_STAGES = {
     "idea",
     "sketch",
@@ -92,9 +80,6 @@ def _coerce_bpm(value: object) -> int | None:
 def normalize_track_context(raw: dict) -> TrackContext:
     """Normalize raw YAML data into the TrackContext dataclass."""
     track_id = _clean_str(raw.get("track_id")) or "default_track"
-    workflow_mode = (_clean_str(raw.get("workflow_mode")) or "general").lower()
-    if workflow_mode not in VALID_WORKFLOW_MODES:
-        workflow_mode = "general"
 
     current_stage = _clean_str(raw.get("current_stage"))
     if current_stage is not None:
@@ -110,11 +95,8 @@ def normalize_track_context(raw: dict) -> TrackContext:
         key=_clean_str(raw.get("key")),
         vibe=_clean_list(raw.get("vibe")),
         reference_tracks=_clean_list(raw.get("reference_tracks")),
-        workflow_mode=workflow_mode,
         current_stage=current_stage,
-        current_section=_clean_str(raw.get("current_section")),
-        sections=_clean_dict_str(raw.get("sections")),
+        current_problem=_clean_str(raw.get("current_problem")),
         known_issues=_clean_list(raw.get("known_issues")),
         goals=_clean_list(raw.get("goals")),
-        notes=_clean_list(raw.get("notes")),
     )

@@ -22,15 +22,14 @@ class TrackContextSuggestionService:
         suggestions = TrackContextSuggestions(
             known_issues=self._extract_items(answer, _ISSUE_PATTERNS, existing=track_context.known_issues, limit=2),
             goals=self._extract_items(answer, _GOAL_PATTERNS, existing=track_context.goals, limit=2),
-            notes=self._extract_items(answer, _NOTE_PATTERNS, existing=track_context.notes, limit=2),
             current_stage=self._extract_stage(answer),
-            current_section=self._extract_section(answer),
+            current_problem=self._extract_problem(answer, existing=track_context.current_problem),
         )
 
         if suggestions.current_stage and suggestions.current_stage == track_context.current_stage:
             suggestions.current_stage = None
-        if suggestions.current_section and suggestions.current_section == track_context.current_section:
-            suggestions.current_section = None
+        if suggestions.current_problem and suggestions.current_problem == track_context.current_problem:
+            suggestions.current_problem = None
 
         return None if suggestions.is_empty() else suggestions
 
@@ -70,14 +69,9 @@ class TrackContextSuggestionService:
                 return stage
         return None
 
-    def _extract_section(self, answer: str) -> str | None:
-        lowered = answer.lower()
-        for section in _SECTIONS:
-            if re.search(rf"\b(?:in|during|before|after|around)\s+the\s+{re.escape(section)}\b", lowered):
-                return section
-            if re.search(rf"\b{re.escape(section)}\s+section\b", lowered):
-                return section
-        return None
+    def _extract_problem(self, answer: str, *, existing: str | None) -> str | None:
+        candidates = self._extract_items(answer, _PROBLEM_PATTERNS, existing=[existing or ""], limit=1)
+        return candidates[0] if candidates else None
 
 
 _ISSUE_PATTERNS = (
@@ -93,9 +87,14 @@ _GOAL_PATTERNS = (
     re.compile(r"^((?:increase|improve|add|create)\s+.+)$", re.IGNORECASE),
 )
 
-_NOTE_PATTERNS = (
+_PROBLEM_PATTERNS = (
+    re.compile(r"^(?:problem|focus|current problem)\s*[:\-]\s*(.+)$", re.IGNORECASE),
     re.compile(r"^(?:note|remember|consider|try)\s*[:\-]\s*(.+)$", re.IGNORECASE),
-    re.compile(r"^(?!\s*(?:note|remember|consider|try)\s*:)(.+\bmay need\b.+)$", re.IGNORECASE),
+    re.compile(
+        r"^(?!\s*(?:issue|problem|weakness|goal|aim|priority|focus|current problem|note|remember|consider|try)\s*:)"
+        r"(.+\bmay need\b.+)$",
+        re.IGNORECASE,
+    ),
 )
 
 _STAGES = (
@@ -108,13 +107,4 @@ _STAGES = (
     "mixing",
     "mastering",
     "finalizing",
-)
-
-_SECTIONS = (
-    "intro",
-    "breakdown",
-    "drop",
-    "first drop",
-    "second drop",
-    "outro",
 )

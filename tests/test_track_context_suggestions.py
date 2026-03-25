@@ -39,8 +39,8 @@ class TrackContextSuggestionServiceTests(unittest.TestCase):
                 [
                     "Issue: drop lacks contrast",
                     "Goal: increase build tension before first drop",
-                    "Note: bassline groove may need more syncopation",
-                    "This feels like an arrangement problem in the first drop.",
+                    "Current problem: bassline groove may need more syncopation",
+                    "This feels like an arrangement problem.",
                 ]
             ),
             TrackContext(track_id="moonlit_driver"),
@@ -49,9 +49,8 @@ class TrackContextSuggestionServiceTests(unittest.TestCase):
         self.assertIsNotNone(suggestions)
         self.assertEqual(suggestions.known_issues, ["drop lacks contrast"])
         self.assertEqual(suggestions.goals, ["increase build tension before first drop"])
-        self.assertEqual(suggestions.notes, ["bassline groove may need more syncopation"])
         self.assertEqual(suggestions.current_stage, "arrangement")
-        self.assertEqual(suggestions.current_section, "first drop")
+        self.assertEqual(suggestions.current_problem, "bassline groove may need more syncopation")
 
     def test_avoids_duplicates_and_returns_none_when_nothing_new_exists(self) -> None:
         suggestions = self.service.suggest(
@@ -78,9 +77,8 @@ class TrackContextApplySuggestionTests(unittest.TestCase):
                 {
                     "known_issues": ["drop lacks contrast"],
                     "goals": ["finish arrangement"],
-                    "notes": ["old note"],
                     "current_stage": "writing",
-                    "current_section": "intro",
+                    "current_problem": "intro energy is too static",
                 },
             )
 
@@ -89,17 +87,15 @@ class TrackContextApplySuggestionTests(unittest.TestCase):
                 TrackContextSuggestions(
                     known_issues=["drop lacks contrast", "bass lacks movement"],
                     goals=["finish arrangement", "increase build tension"],
-                    notes=["old note", "bassline groove may need more syncopation"],
                     current_stage="arrangement",
-                    current_section="first drop",
+                    current_problem="bassline groove may need more syncopation",
                 ),
             )
 
             self.assertEqual(updated.known_issues, ["drop lacks contrast", "bass lacks movement"])
             self.assertEqual(updated.goals, ["finish arrangement", "increase build tension"])
-            self.assertEqual(updated.notes, ["old note", "bassline groove may need more syncopation"])
             self.assertEqual(updated.current_stage, "arrangement")
-            self.assertEqual(updated.current_section, "first drop")
+            self.assertEqual(updated.current_problem, "bassline groove may need more syncopation")
 
 
 class QueryServiceTrackContextSuggestionTests(unittest.TestCase):

@@ -55,6 +55,7 @@ def main() -> None:
         return
 
     _init_session_state(base_config)
+    _sync_active_chat_model_with_available_models(base_config)
     ui_config = _config_from_session(base_config)
     services = _get_services(ui_config)
     status, status_error = _safe_get_status(services["index_service"])
@@ -168,7 +169,7 @@ def _render_sidebar(
 
         st.divider()
         st.subheader("YAML Track Context")
-        st.caption("Primary editable Track Context used for prompts, retrieval rewriting, critique mode, and suggested updates.")
+        st.caption("Primary editable Track Context used for persistent track memory, prompt context, retrieval rewriting, and suggested updates.")
         st.text_input(
             "Track ID",
             key="track_context_track_id",
@@ -199,33 +200,27 @@ def _render_sidebar(
                         key="track_context_bpm",
                     )
                     detail_col_right.text_input("Key", value=context.key or "", key="track_context_key")
-                    st.caption("Session Focus")
+                    st.caption("Current Working State")
                     focus_col_left, focus_col_right = st.columns(2)
-                    focus_col_left.selectbox(
-                        "Workflow",
-                        options=_TRACK_CONTEXT_WORKFLOW_MODES,
-                        index=_TRACK_CONTEXT_WORKFLOW_MODES.index(context.workflow_mode),
-                        key="track_context_workflow_mode",
-                    )
                     stage_options = [""] + _TRACK_CONTEXT_CURRENT_STAGES
                     current_stage = context.current_stage or ""
-                    focus_col_right.selectbox(
+                    focus_col_left.selectbox(
                         "Stage",
                         options=stage_options,
                         index=stage_options.index(current_stage),
                         key="track_context_current_stage",
                     )
-                    st.text_input(
-                        "Section",
-                        value=context.current_section or "",
-                        key="track_context_current_section",
+                    focus_col_right.text_input(
+                        "Current Problem",
+                        value=context.current_problem or "",
+                        key="track_context_current_problem",
                     )
                     st.text_input(
                         "Vibe (comma separated)",
                         value=", ".join(context.vibe),
                         key="track_context_vibe",
                     )
-                    st.caption("References and Working Notes")
+                    st.caption("References, Issues, and Goals")
                     st.text_area(
                         "Reference Tracks (one per line)",
                         value="\n".join(context.reference_tracks),
@@ -244,12 +239,6 @@ def _render_sidebar(
                         key="track_context_goals",
                         height=70,
                     )
-                    st.text_area(
-                        "Notes (one per line)",
-                        value="\n".join(context.notes),
-                        key="track_context_notes",
-                        height=90,
-                    )
                     saved = st.form_submit_button("Save Track Context", use_container_width=True)
                 if saved:
                     query_service.track_context_service.update_fields(
@@ -259,9 +248,8 @@ def _render_sidebar(
                             "genre": st.session_state["track_context_genre"],
                             "bpm": st.session_state["track_context_bpm"],
                             "key": st.session_state["track_context_key"],
-                            "workflow_mode": st.session_state["track_context_workflow_mode"],
                             "current_stage": st.session_state["track_context_current_stage"],
-                            "current_section": st.session_state["track_context_current_section"],
+                            "current_problem": st.session_state["track_context_current_problem"],
                             "vibe": _split_csv(st.session_state["track_context_vibe"]),
                             "reference_tracks": _split_lines(
                                 st.session_state["track_context_reference_tracks"]
@@ -270,7 +258,6 @@ def _render_sidebar(
                                 st.session_state["track_context_known_issues"]
                             ),
                             "goals": _split_lines(st.session_state["track_context_goals"]),
-                            "notes": _split_lines(st.session_state["track_context_notes"]),
                         },
                     )
                     st.success("Track context saved.")
@@ -335,12 +322,11 @@ def _render_ask_tab(
             "track_context_genre",
             "track_context_bpm",
             "track_context_key",
-            "track_context_current_section",
+            "track_context_current_problem",
             "track_context_vibe",
             "track_context_reference_tracks",
             "track_context_known_issues",
             "track_context_goals",
-            "track_context_notes",
             "new_task_text",
             "new_task_notes",
         ):
@@ -348,7 +334,6 @@ def _render_ask_tab(
         st.session_state["collaboration_workflow"] = CollaborationWorkflow.GENERAL_ASK.value
         st.session_state["workflow_mode"] = WorkflowMode.DIRECT.value
         st.session_state["use_track_context"] = True
-        st.session_state["track_context_workflow_mode"] = "general"
         st.session_state["track_context_current_stage"] = ""
         st.session_state["max_subquestions"] = 3
         st.session_state["chat_messages"] = []
@@ -1021,7 +1006,7 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
 
     with youtube_col:
         st.subheader("Import a YouTube Video")
-        st.caption("Saved into the configured YouTube-imports folder for later review or promotion.")
+        st.caption("Saved as a structured video knowledge note in the configured YouTube-imports folder.")
         with st.form("ingest_youtube_form", clear_on_submit=False, enter_to_submit=False):
             st.text_input(
                 "YouTube URL",
@@ -1057,14 +1042,17 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
                 st.warning("Enter a YouTube URL before starting ingestion.")
             else:
                 try:
-                    response = ingestion_service.ingest_youtube(
-                        IngestionRequest(
-                            source=url,
-                            title_override=st.session_state["youtube_title"].strip() or None,
-                            index_now=st.session_state["youtube_index_now"],
-                            import_genre=_selected_import_genre("youtube"),
+                    with st.spinner(
+                        "Importing video, extracting transcript, building semantic sections, and saving the note..."
+                    ):
+                        response = ingestion_service.ingest_youtube(
+                            IngestionRequest(
+                                source=url,
+                                title_override=st.session_state["youtube_title"].strip() or None,
+                                index_now=st.session_state["youtube_index_now"],
+                                import_genre=_selected_import_genre("youtube"),
+                            )
                         )
-                    )
                     st.session_state["last_ingestion_response"] = response
                     st.success(f"Saved YouTube note to {response.saved_path}")
                 except Exception as exc:
@@ -1081,6 +1069,10 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
     st.write(f"Source type: `{response.source_type}`")
     if response.import_genre:
         st.write(f"Genre: `{response.import_genre}`")
+    if response.section_count:
+        st.write(f"Sections: `{response.section_count}`")
+    if response.transcript_chunk_count:
+        st.write(f"Transcript chunks: `{response.transcript_chunk_count}`")
     st.write(f"Indexed now: `{'yes' if response.index_triggered else 'no'}`")
     for warning in response.warnings:
         st.warning(warning)
@@ -1596,14 +1588,12 @@ def _init_session_state(config: AppConfig) -> None:
         "track_context_genre": "",
         "track_context_bpm": "",
         "track_context_key": "",
-        "track_context_workflow_mode": "general",
         "track_context_current_stage": "",
-        "track_context_current_section": "",
+        "track_context_current_problem": "",
         "track_context_vibe": "",
         "track_context_reference_tracks": "",
         "track_context_known_issues": "",
         "track_context_goals": "",
-        "track_context_notes": "",
         "chat_messages": [],
         "session_tasks": [],
         "new_task_text": "",
@@ -1640,22 +1630,25 @@ def _config_from_session(config: AppConfig) -> AppConfig:
     )
 
 
+def _sync_active_chat_model_with_available_models(config: AppConfig) -> None:
+    available_chat_models, _ = list_available_chat_models(config)
+    if not available_chat_models:
+        return
+
+    resolved_model = _resolve_preferred_chat_model_name(
+        st.session_state.get("active_chat_model", _DEFAULT_ACTIVE_CHAT_MODEL),
+        available_chat_models,
+    )
+    st.session_state["active_chat_model"] = resolved_model
+    st.session_state["active_chat_model_select"] = resolved_model
+    st.session_state["active_chat_model_input"] = resolved_model
+
+
 _CHAT_TASK_WORKFLOWS = {
     CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE.value,
     CollaborationWorkflow.ARRANGEMENT_PLANNER.value,
     CollaborationWorkflow.SOUND_DESIGN_BRAINSTORM.value,
 }
-
-_TRACK_CONTEXT_WORKFLOW_MODES = [
-    "general",
-    "track_critique",
-    "composition",
-    "arrangement",
-    "sound_design",
-    "critique",
-    "mixing",
-    "research",
-]
 
 _TRACK_CONTEXT_CURRENT_STAGES = [
     "idea",

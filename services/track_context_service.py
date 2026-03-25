@@ -84,12 +84,7 @@ class TrackContextService:
 
     def create_default(self, track_id: str) -> TrackContext:
         """Create a minimal normalized YAML track context on disk."""
-        context = normalize_track_context(
-            {
-                "track_id": track_id,
-                "workflow_mode": "general",
-            }
-        )
+        context = normalize_track_context({"track_id": track_id})
         self.save(context)
         return context
 
@@ -133,12 +128,11 @@ class TrackContextService:
         updates: dict[str, object] = {
             "known_issues": _merge_unique(context.known_issues, suggestions.known_issues),
             "goals": _merge_unique(context.goals, suggestions.goals),
-            "notes": _merge_unique(context.notes, suggestions.notes),
         }
         if suggestions.current_stage:
             updates["current_stage"] = suggestions.current_stage
-        if suggestions.current_section:
-            updates["current_section"] = suggestions.current_section
+        if suggestions.current_problem:
+            updates["current_problem"] = suggestions.current_problem
         return self.update_fields(track_id, updates)
 
     def get_track_context(

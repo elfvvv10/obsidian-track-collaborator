@@ -6,6 +6,7 @@ from pathlib import PurePosixPath
 import re
 
 from services.arrangement_service import ArrangementService
+from services.video_ingestion_service import parse_video_knowledge_document
 from utils import Chunk, Note, compute_note_fingerprint, make_note_key, normalize_path, slugify
 
 
@@ -60,6 +61,20 @@ def chunk_notes(
                     note_fingerprint=note_fingerprint,
                     source_dir=source_dir,
                     arrangement_service=arrangement_service,
+                    chunk_size=chunk_size,
+                    overlap=overlap,
+                )
+            )
+            continue
+
+        if str(note.source_type).strip().lower() == "youtube_video":
+            chunks.extend(
+                _chunk_video_note(
+                    note,
+                    note_path=note_path,
+                    note_key=note_key,
+                    note_fingerprint=note_fingerprint,
+                    source_dir=source_dir,
                     chunk_size=chunk_size,
                     overlap=overlap,
                 )
@@ -217,6 +232,149 @@ def _chunk_arrangement_note(
             ),
         )
     ]
+
+
+def _chunk_video_note(
+    note: Note,
+    *,
+    note_path: str,
+    note_key: str,
+    note_fingerprint: str,
+    source_dir: str,
+    chunk_size: int,
+    overlap: int,
+) -> list[Chunk]:
+    video_document = parse_video_knowledge_document(note.frontmatter or {}, note.content)
+    if not video_document.sections and not video_document.summary:
+        return []
+
+    chunk_mode = (
+        str((note.frontmatter or {}).get("video_index_mode", "")).strip().lower()
+        or "sections"
+    )
+    texts_with_metadata: list[tuple[str, str, dict[str, object]]] = []
+
+    overview_parts = ["# Video Knowledge Import"]
+    if video_document.summary:
+        overview_parts.extend(["", "## Summary", video_document.summary])
+    if video_document.key_takeaways:
+        overview_parts.extend(["", "## Key Takeaways", *[f"- {item}" for item in video_document.key_takeaways]])
+    if video_document.topics:
+        overview_parts.extend(["", f"Topics: {', '.join(video_document.topics)}"])
+    overview_text = "\n".join(overview_parts).strip()
+    if overview_text:
+        texts_with_metadata.append(
+            (
+                overview_text,
+                "Video Knowledge Import",
+                {
+                    "video_section_title": "Overview",
+                    "video_start_time": "",
+                    "video_end_time": "",
+                    "video_chunk_kind": "summary",
+                },
+            )
+        )
+
+    for section in video_document.sections:
+        heading = f"{section.title} [{int(section.start_time)}-{int(section.end_time)}]"
+        summary_text = (
+            f"# {section.title}\n\n"
+            f"Timestamp: {section.start_time:.0f}s - {section.end_time:.0f}s\n"
+            f"Summary: {section.summary}\n"
+        ).strip()
+        if section.key_points:
+            summary_text += "\nKey Points:\n" + "\n".join(f"- {point}" for point in section.key_points)
+        texts_with_metadata.append(
+            (
+                summary_text,
+                heading,
+                {
+                    "video_section_title": section.title,
+                    "video_start_time": section.start_time,
+                    "video_end_time": section.end_time,
+                    "video_chunk_kind": "section_summary",
+                },
+            )
+        )
+
+        if section.content:
+            if chunk_mode in {"transcript", "both"}:
+                content_chunks = _chunk_markdown_text(section.content, chunk_size=chunk_size, overlap=overlap)
+                for content_index, chunk_info in enumerate(content_chunks, start=1):
+                    texts_with_metadata.append(
+                        (
+                            chunk_info["text"],
+                            f"{heading} | Content {content_index}",
+                            {
+                                "video_section_title": section.title,
+                                "video_start_time": section.start_time,
+                                "video_end_time": section.end_time,
+                                "video_chunk_kind": "transcript",
+                            },
+                        )
+                    )
+            else:
+                section_text = (
+                    f"# {section.title}\n\n"
+                    f"Timestamp: {section.start_time:.0f}s - {section.end_time:.0f}s\n"
+                    f"Summary: {section.summary}\n\n"
+                    f"Content:\n{section.content}\n\n"
+                    f"Keywords: {', '.join(section.keywords)}"
+                ).strip()
+                texts_with_metadata.append(
+                    (
+                        section_text,
+                        heading,
+                        {
+                            "video_section_title": section.title,
+                            "video_start_time": section.start_time,
+                            "video_end_time": section.end_time,
+                            "video_chunk_kind": "section",
+                        },
+                    )
+                )
+
+    chunks: list[Chunk] = []
+    chunk_counter = 0
+    previous_text = ""
+    for text, heading_context, metadata in texts_with_metadata:
+        for chunk_info in _chunk_markdown_text(text, chunk_size=chunk_size, overlap=overlap):
+            chunk_text = _apply_overlap(previous_text, chunk_info["text"], overlap)
+            previous_text = chunk_info["text"]
+            chunks.append(
+                Chunk(
+                    id=f"{slugify(note.path)}-{note_fingerprint[:12]}-{chunk_counter}",
+                    text=chunk_text,
+                    source_path=note_path,
+                    note_title=note.title,
+                    chunk_index=chunk_counter,
+                    source_dir=source_dir,
+                    heading_context=heading_context or chunk_info["heading_context"],
+                    note_key=note_key,
+                    note_fingerprint=note_fingerprint,
+                    tags=note.tags,
+                    linked_note_keys=note.linked_note_keys,
+                    source_kind=note.source_kind,
+                    source_type=note.source_type,
+                    content_scope=note.content_scope,
+                    content_category=note.content_category,
+                    import_genre=note.import_genre,
+                    video_title=video_document.video_title,
+                    video_channel_name=video_document.channel_name or "",
+                    video_source_url=video_document.source_url,
+                    video_section_title=str(metadata["video_section_title"]),
+                    video_start_time=str(metadata["video_start_time"]),
+                    video_end_time=str(metadata["video_end_time"]),
+                    video_duration_seconds=video_document.duration_seconds,
+                    video_language=video_document.language or "",
+                    video_schema_version=video_document.schema_version,
+                    video_chunk_kind=str(metadata["video_chunk_kind"]),
+                )
+            )
+            chunk_counter += 1
+
+    return chunks
 
 
 def _chunk_sentence_text(text: str, *, chunk_size: int, overlap: int) -> list[dict[str, str]]:

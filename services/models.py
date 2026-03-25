@@ -208,18 +208,19 @@ class TrackContext:
 
     track_id: str = "default_track"
     track_name: str | None = None
+    # Core identity
     genre: str | None = None
     bpm: int | None = None
     key: str | None = None
     vibe: list[str] = field(default_factory=list)
+    # References
     reference_tracks: list[str] = field(default_factory=list)
-    workflow_mode: str = "general"
+    # Current working state
     current_stage: str | None = None
-    current_section: str | None = None
-    sections: dict[str, str] = field(default_factory=dict)
+    current_problem: str | None = None
+    # Persistent issues + goals
     known_issues: list[str] = field(default_factory=list)
     goals: list[str] = field(default_factory=list)
-    notes: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -275,6 +276,69 @@ class ArrangementDocument:
     global_notes: list[str] = field(default_factory=list)
     section_index: list[ArrangementSectionIndexEntry] = field(default_factory=list)
     sections: list[ArrangementSection] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class VideoTranscriptSegment:
+    """A timestamped transcript segment extracted from a video source."""
+
+    text: str
+    start_time: float
+    end_time: float
+
+
+@dataclass(slots=True)
+class VideoKnowledgeSection:
+    """A semantic video section prepared for note rendering and retrieval."""
+
+    title: str
+    start_time: float
+    end_time: float
+    summary: str
+    key_points: list[str] = field(default_factory=list)
+    content: str = ""
+    keywords: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class VideoKnowledgeDocument:
+    """Structured representation of a video-derived knowledge note."""
+
+    source_type: str = "youtube_video"
+    source_url: str = ""
+    video_title: str = ""
+    platform: str = "youtube"
+    channel_name: str | None = None
+    published_at: str | None = None
+    duration_seconds: int | None = None
+    duration_readable: str | None = None
+    language: str | None = None
+    imported_at: str | None = None
+    schema_version: str = "video_import_v1"
+    content_type: str = "video_knowledge"
+    status: str = "imported"
+    indexed: bool = False
+    created_by: str = "obsidian_rag_assistant"
+    video_id: str | None = None
+    transcript_source: str | None = None
+    whisper_model: str | None = None
+    video_index_mode: str = "sections"
+    description_present: bool | None = None
+    thumbnail_url: str | None = None
+    retrieval_ready: bool = True
+    section_count: int = 0
+    transcript_chunk_count: int = 0
+    domain_profile: str | None = None
+    workflow_type: str | None = None
+    import_notes: str | None = None
+    import_genre: str | None = None
+    topics: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    summary: str = ""
+    key_takeaways: list[str] = field(default_factory=list)
+    sections: list[VideoKnowledgeSection] = field(default_factory=list)
+    producer_notes: list[str] = field(default_factory=list)
+    retrieval_notes: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -373,19 +437,12 @@ class TrackContextSuggestions:
 
     known_issues: list[str] = field(default_factory=list)
     goals: list[str] = field(default_factory=list)
-    notes: list[str] = field(default_factory=list)
     current_stage: str | None = None
-    current_section: str | None = None
+    current_problem: str | None = None
 
     def is_empty(self) -> bool:
         """Return whether the suggestion payload contains any actionable updates."""
-        return not (
-            self.known_issues
-            or self.goals
-            or self.notes
-            or self.current_stage
-            or self.current_section
-        )
+        return not (self.known_issues or self.goals or self.current_stage or self.current_problem)
 
 
 @dataclass(slots=True)
@@ -630,4 +687,6 @@ class IngestionResponse:
     title: str
     import_genre: str | None = None
     index_triggered: bool = False
+    section_count: int = 0
+    transcript_chunk_count: int = 0
     warnings: list[str] = field(default_factory=list)

@@ -108,6 +108,16 @@ class Chunk:
     arrangement_section_name: str = ""
     arrangement_energy: int | None = None
     arrangement_version: str = ""
+    video_title: str = ""
+    video_channel_name: str = ""
+    video_source_url: str = ""
+    video_section_title: str = ""
+    video_start_time: str = ""
+    video_end_time: str = ""
+    video_duration_seconds: int | None = None
+    video_language: str = ""
+    video_schema_version: str = ""
+    video_chunk_kind: str = ""
 
 
 @dataclass(slots=True)

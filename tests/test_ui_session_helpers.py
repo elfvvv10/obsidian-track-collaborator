@@ -22,16 +22,14 @@ class UISessionHelpersTests(unittest.TestCase):
                 genre="progressive house",
                 bpm=126,
                 key="A minor",
-                workflow_mode="track_critique",
                 current_stage="arrangement",
-                current_section="first drop",
+                current_problem="drop lacks contrast",
             )
         )
 
         self.assertEqual(title, "Active YAML Track Context")
         self.assertIn(("Track ID", "moonlit_driver"), rows)
-        self.assertIn(("Workflow Mode", "track_critique"), rows)
-        self.assertIn(("Current Section", "first drop"), rows)
+        self.assertIn(("Current Problem", "drop lacks contrast"), rows)
 
     def test_suggestion_groups_returns_clear_grouping(self) -> None:
         groups = suggestion_groups(

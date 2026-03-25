@@ -41,10 +41,8 @@ class TrackQueryRewriteService:
                     break
 
         add(track_context.genre)
-        if track_context.workflow_mode != "general":
-            add(track_context.workflow_mode)
         add(track_context.current_stage)
-        add(track_context.current_section)
+        add(track_context.current_problem)
         add_many(track_context.known_issues, limit=2)
         add_many(track_context.goals, limit=2)
         add_many(track_context.vibe, limit=2)

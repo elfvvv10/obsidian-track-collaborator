@@ -69,6 +69,10 @@ def _extract_title(file_path: Path, content: str, frontmatter: dict[str, object]
         track_name = str(frontmatter.get("track_name", "")).strip()
         if track_name:
             return f"{track_name} Arrangement"
+    if str(frontmatter.get("source_type", "")).strip().lower() == "youtube_video":
+        video_title = str(frontmatter.get("video_title", "")).strip()
+        if video_title:
+            return video_title
     for line in content.splitlines():
         stripped = line.strip()
         if stripped.startswith("#"):
@@ -80,7 +84,7 @@ def _infer_source_kind(frontmatter: dict[str, object]) -> str:
     source_type = _infer_source_type(frontmatter)
     if source_type in {"saved_answer", "research_session"}:
         return "saved_answer"
-    if source_type in {"webpage_import", "youtube_import"}:
+    if source_type in {"webpage_import", "youtube_import", "youtube_video"}:
         return "imported_content"
     return "primary_note"
 

@@ -11,7 +11,8 @@ import requests
 
 from config import AppConfig
 from services.ingestion_service import IngestionService
-from services.models import IngestionRequest, IngestionResponse
+from services.models import IngestionRequest, IngestionResponse, VideoTranscriptSegment
+from services.video_ingestion_service import VideoIngestionService, _get_transcript_items
 from services.webpage_ingestion_service import WebpageIngestionService
 from services.youtube_ingestion_service import YouTubeIngestionService
 
@@ -190,13 +191,27 @@ class WebpageIngestionTests(unittest.TestCase):
             config.obsidian_output_path.mkdir()
 
             with patch.object(
-                YouTubeIngestionService,
-                "_fetch_title",
-                return_value="Test Video",
+                VideoIngestionService,
+                "_fetch_video_metadata",
+                return_value={
+                    "video_title": "Test Video",
+                    "channel_name": "Producer Lab",
+                    "published_at": "2025-11-02",
+                    "duration_seconds": 1542,
+                    "language": "en",
+                    "description": "A useful producer tutorial.",
+                },
             ), patch.object(
-                YouTubeIngestionService,
-                "_fetch_transcript",
-                return_value="First transcript line.\n\nSecond transcript line.",
+                VideoIngestionService,
+                "_build_transcript",
+                return_value=(
+                    [
+                        VideoTranscriptSegment("First transcript line.", 0.0, 14.0),
+                        VideoTranscriptSegment("Second transcript line with bass design details.", 14.0, 34.0),
+                    ],
+                    "faster_whisper",
+                    [],
+                ),
             ):
                 response = YouTubeIngestionService(config).ingest(
                     IngestionRequest(
@@ -212,18 +227,20 @@ class WebpageIngestionTests(unittest.TestCase):
             self.assertEqual(response.import_genre, "New Groove")
 
             content = response.saved_path.read_text(encoding="utf-8")
-            self.assertIn('source_type: "youtube_import"', content)
+            self.assertIn('source_type: "youtube_video"', content)
             self.assertIn('status: "imported"', content)
             self.assertIn("indexed: false", content)
             self.assertIn('created_by: "obsidian_rag_assistant"', content)
-            self.assertIn('youtube_video_id: "abc123xyz00"', content)
+            self.assertIn('video_id: "abc123xyz00"', content)
             self.assertIn('genre: "New Groove"', content)
-            self.assertIn("**Genre:** New Groove", content)
-            self.assertIn("## Transcript", content)
+            self.assertIn("## Sections", content)
             self.assertIn("First transcript line.", content)
-            self.assertIn("# Test Video", content)
+            self.assertIn("# Video Knowledge Import", content)
+            self.assertIn("Producer Lab", content)
+            self.assertEqual(response.section_count, 1)
+            self.assertEqual(response.transcript_chunk_count, 2)
 
-    def test_youtube_ingestion_handles_transcript_failure(self) -> None:
+    def test_youtube_ingestion_handles_video_processing_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             config = make_config(root)
@@ -231,8 +248,12 @@ class WebpageIngestionTests(unittest.TestCase):
             config.obsidian_output_path.mkdir()
 
             with patch.object(
-                YouTubeIngestionService,
-                "_fetch_transcript",
+                VideoIngestionService,
+                "_fetch_video_metadata",
+                return_value={"video_title": "Broken Video"},
+            ), patch.object(
+                VideoIngestionService,
+                "_build_transcript",
                 side_effect=RuntimeError("no transcript"),
             ):
                 with self.assertRaisesRegex(RuntimeError, "no transcript"):
@@ -241,30 +262,25 @@ class WebpageIngestionTests(unittest.TestCase):
                     )
 
     def test_youtube_transcript_fetch_supports_instance_api_shape(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            root = Path(tmp_dir)
-            config = make_config(root)
-            config.obsidian_vault_path.mkdir()
-            config.obsidian_output_path.mkdir()
+        class Snippet:
+            def __init__(self, text: str, start: float = 0.0, duration: float = 1.0) -> None:
+                self.text = text
+                self.start = start
+                self.duration = duration
 
-            class Snippet:
-                def __init__(self, text: str, start: float = 0.0, duration: float = 1.0) -> None:
-                    self.text = text
-                    self.start = start
-                    self.duration = duration
+        class StubTranscriptApi:
+            def fetch(self, video_id: str):
+                return [
+                    Snippet("First line"),
+                    Snippet("[Music]"),
+                    Snippet("Second line"),
+                ]
 
-            class StubTranscriptApi:
-                def fetch(self, video_id: str):
-                    return [
-                        Snippet("First line"),
-                        Snippet("[Music]"),
-                        Snippet("Second line"),
-                    ]
+        with patch("services.video_ingestion_service.YouTubeTranscriptApi", StubTranscriptApi):
+            transcript_items = _get_transcript_items("abc123xyz00")
 
-            with patch("services.youtube_ingestion_service.YouTubeTranscriptApi", StubTranscriptApi):
-                transcript = YouTubeIngestionService(config)._fetch_transcript("abc123xyz00")
-
-            self.assertEqual(transcript, "First line\n\nSecond line")
+        self.assertEqual(transcript_items[0]["text"], "First line")
+        self.assertEqual(transcript_items[2]["text"], "Second line")
 
     def test_ingestion_service_can_trigger_incremental_index_for_youtube(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -212,7 +212,7 @@ def _classify_note_metadata(
     explicit_scope = str(frontmatter.get("content_scope", "")).strip().lower()
     explicit_status = str(frontmatter.get("status", "")).strip().lower()
     source_type = str(frontmatter.get("source_type", "")).strip().lower()
-    is_imported_source = source_type in {"webpage_import", "youtube_import"}
+    is_imported_source = source_type in {"webpage_import", "youtube_import", "youtube_video"}
     is_generated_source = source_type in {"saved_answer", "research_session"}
     import_genre = str(frontmatter.get("genre", "")).strip()
 

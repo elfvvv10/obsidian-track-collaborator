@@ -114,7 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("index", help="Build the vector index from the configured vault")
     rebuild_parser = subparsers.add_parser("rebuild", help="Clear and rebuild the vector index")
     ingest_parser = subparsers.add_parser("ingest-webpage", help="Import a webpage into the vault")
-    ingest_youtube_parser = subparsers.add_parser("ingest-youtube", help="Import a YouTube transcript into the vault")
+    ingest_youtube_parser = subparsers.add_parser("ingest-youtube", help="Import a YouTube video knowledge note into the vault")
 
     index_parser = subparsers.choices["index"]
     _add_index_overrides(index_parser)

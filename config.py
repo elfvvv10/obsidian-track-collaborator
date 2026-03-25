@@ -45,6 +45,14 @@ class AppConfig:
     webpage_ingestion_folder: str = "ingested_webpages"
     youtube_ingestion_folder: str = "ingested_youtube"
     auto_index_after_ingestion: bool = False
+    youtube_whisper_model: str = "small"
+    youtube_max_duration_seconds: int = 7200
+    youtube_semantic_chunk_target_seconds: int = 120
+    youtube_semantic_chunk_target_chars: int = 1200
+    youtube_temp_dir: str = ""
+    youtube_save_markdown_import_note: bool = True
+    youtube_index_mode: str = "sections"
+    youtube_allow_transcript_fallback: bool = True
     webpage_fetch_timeout_seconds: int = 15
     webpage_fetch_user_agent: str = "obsidian-rag-assistant/1.0"
     track_critique_framework_path: str = ""
@@ -86,7 +94,7 @@ def load_config() -> AppConfig:
     output_path = _required_path_env("OBSIDIAN_OUTPUT_PATH", must_exist=False, directory_only=True)
     chroma_path = _required_path_env("CHROMA_DB_PATH", must_exist=False, directory_only=True)
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").strip().rstrip("/")
-    chat_model = os.getenv("OLLAMA_CHAT_MODEL", "hermes3").strip()
+    chat_model = os.getenv("OLLAMA_CHAT_MODEL", "deepseek").strip()
     embedding_model = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text").strip()
     top_k_results = _required_int_env("TOP_K_RESULTS", default=3, minimum=1)
     chunk_size = _required_int_env("CHUNK_SIZE", default=1000, minimum=100)
@@ -127,6 +135,26 @@ def load_config() -> AppConfig:
     webpage_ingestion_folder = _relative_folder_env("WEBPAGE_INGESTION_FOLDER", default="ingested_webpages")
     youtube_ingestion_folder = _relative_folder_env("YOUTUBE_INGESTION_FOLDER", default="ingested_youtube")
     auto_index_after_ingestion = _bool_env("AUTO_INDEX_AFTER_INGESTION", default=False)
+    youtube_whisper_model = os.getenv("YOUTUBE_WHISPER_MODEL", "small").strip() or "small"
+    youtube_max_duration_seconds = _required_int_env("YOUTUBE_MAX_DURATION_SECONDS", default=7200, minimum=60)
+    youtube_semantic_chunk_target_seconds = _required_int_env(
+        "YOUTUBE_SEMANTIC_CHUNK_TARGET_SECONDS",
+        default=120,
+        minimum=30,
+    )
+    youtube_semantic_chunk_target_chars = _required_int_env(
+        "YOUTUBE_SEMANTIC_CHUNK_TARGET_CHARS",
+        default=1200,
+        minimum=200,
+    )
+    youtube_temp_dir = os.getenv("YOUTUBE_TEMP_DIR", "").strip()
+    youtube_save_markdown_import_note = _bool_env("YOUTUBE_SAVE_MARKDOWN_IMPORT_NOTE", default=True)
+    youtube_index_mode = _choice_env(
+        "YOUTUBE_INDEX_MODE",
+        default="sections",
+        choices={"sections", "transcript", "both"},
+    )
+    youtube_allow_transcript_fallback = _bool_env("YOUTUBE_ALLOW_TRANSCRIPT_FALLBACK", default=True)
     webpage_fetch_timeout_seconds = _required_int_env("WEBPAGE_FETCH_TIMEOUT_SECONDS", default=15, minimum=1)
     webpage_fetch_user_agent = os.getenv(
         "WEBPAGE_FETCH_USER_AGENT",
@@ -172,6 +200,14 @@ def load_config() -> AppConfig:
         webpage_ingestion_folder=webpage_ingestion_folder,
         youtube_ingestion_folder=youtube_ingestion_folder,
         auto_index_after_ingestion=auto_index_after_ingestion,
+        youtube_whisper_model=youtube_whisper_model,
+        youtube_max_duration_seconds=youtube_max_duration_seconds,
+        youtube_semantic_chunk_target_seconds=youtube_semantic_chunk_target_seconds,
+        youtube_semantic_chunk_target_chars=youtube_semantic_chunk_target_chars,
+        youtube_temp_dir=youtube_temp_dir,
+        youtube_save_markdown_import_note=youtube_save_markdown_import_note,
+        youtube_index_mode=youtube_index_mode,
+        youtube_allow_transcript_fallback=youtube_allow_transcript_fallback,
         webpage_fetch_timeout_seconds=webpage_fetch_timeout_seconds,
         webpage_fetch_user_agent=webpage_fetch_user_agent,
         track_critique_framework_path=track_critique_framework_path,

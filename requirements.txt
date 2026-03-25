@@ -1,6 +1,8 @@
 chromadb
+faster-whisper
 python-dotenv
 PyYAML
 requests
 streamlit
+yt-dlp
 youtube-transcript-api

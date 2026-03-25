@@ -20,9 +20,8 @@ class TrackQueryRewriteServiceTests(unittest.TestCase):
             "help with the bassline",
             TrackContext(
                 genre="progressive house",
-                workflow_mode="arrangement",
                 current_stage="production",
-                current_section="first drop",
+                current_problem="drop feels flat",
                 known_issues=["drop feels flat"],
                 goals=["stronger groove"],
                 vibe=["emotional"],
@@ -33,7 +32,7 @@ class TrackQueryRewriteServiceTests(unittest.TestCase):
 
         self.assertEqual(
             rewritten,
-            "help with the bassline progressive house arrangement production first drop drop feels flat stronger groove emotional 126 A minor",
+            "help with the bassline progressive house production drop feels flat stronger groove emotional 126 A minor",
         )
 
     def test_skips_empty_values(self) -> None:
@@ -41,9 +40,8 @@ class TrackQueryRewriteServiceTests(unittest.TestCase):
             "bassline help",
             TrackContext(
                 genre="",
-                workflow_mode="general",
                 current_stage=None,
-                current_section="",
+                current_problem="",
                 known_issues=[],
                 goals=[],
                 vibe=[],

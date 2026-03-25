@@ -5,6 +5,7 @@ Use this folder for reusable starting points and workflow scaffolds.
 Current contents:
 - `track_context_template.md`
 - `track_arrangement_template.md`
+- `video_import_template.md`
 - `session_note_template.md`
 - `Frameworks/track_critique_framework_v1.md`
 

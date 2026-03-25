@@ -38,7 +38,7 @@ class IngestionService:
         return response
 
     def ingest_youtube(self, request: IngestionRequest) -> IngestionResponse:
-        """Import a YouTube transcript into the vault and optionally trigger indexing."""
+        """Import a YouTube video knowledge note into the vault and optionally trigger indexing."""
         youtube_service = self.youtube_service_cls(self.config)
         response = youtube_service.ingest(request)
 
