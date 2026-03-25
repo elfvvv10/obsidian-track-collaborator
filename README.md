@@ -532,12 +532,15 @@ Saved Outputs/
   research/
 
 Templates/
-  Frameworks/
-    track_critique_framework_v1.md
   track_context_template.md
   track_arrangement_template.md
   video_import_template.md
   session_note_template.md
+
+Sources/
+  Frameworks/
+    Music Production/
+      track_critique_framework_v1.md
 
 Archive/
 ```
@@ -552,7 +555,10 @@ The sample vault includes reusable starters in [sample_vault/Templates](/Users/a
 - `track_arrangement_template.md`
 - `video_import_template.md`
 - `session_note_template.md`
-- `Frameworks/track_critique_framework_v1.md`
+
+Framework documents such as the critique framework now live under [sample_vault/Sources/Frameworks](/Users/andrewhaynes/Coding/Obsidian%20RAG%20Assistant/sample_vault/Sources/Frameworks), for example:
+
+- `Music Production/track_critique_framework_v1.md`
 
 ## Tests
 

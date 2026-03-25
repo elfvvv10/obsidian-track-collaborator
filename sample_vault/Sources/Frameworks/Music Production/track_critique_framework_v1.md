@@ -5,7 +5,9 @@ version: v1
 focus: progressive_house
 use_case: track_critique
 ---
-
+importance: high
+source_type: system
+retrieval_role: framework
 # Track Critique Framework v1 — Progressive House (Andrew)
 
 ## Purpose

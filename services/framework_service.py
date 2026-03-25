@@ -77,12 +77,31 @@ class FrameworkService:
         if override_path is not None and override_path.exists():
             return override_path, "override"
 
-        preferred_path = (self.repo_root / "templates" / "frameworks" / filename).resolve()
-        if preferred_path.exists():
-            return preferred_path, "repo-default"
+        candidates: tuple[tuple[Path, str], ...] = (
+            (self.config.obsidian_vault_path / "Sources" / "Frameworks", "vault-sources"),
+            (self.config.obsidian_vault_path / "Templates" / "Frameworks", "vault-legacy-templates"),
+            (self.config.obsidian_vault_path / "Knowledge" / "Frameworks", "vault-legacy-knowledge"),
+            (self.repo_root / "sources" / "frameworks", "repo-sources"),
+            (self.repo_root / "templates" / "frameworks", "repo-legacy-default"),
+            (self.repo_root / "knowledge" / "frameworks", "repo-legacy-default"),
+        )
+        for directory, source in candidates:
+            discovered = self._resolve_framework_from_directory(directory, filename)
+            if discovered is not None:
+                return discovered, source
 
-        legacy_path = (self.repo_root / "knowledge" / "frameworks" / filename).resolve()
-        return legacy_path, "repo-legacy-default"
+        return (self.repo_root / "templates" / "frameworks" / filename).resolve(), "repo-legacy-default"
+
+    def _resolve_framework_from_directory(self, directory: Path, filename: str) -> Path | None:
+        if not directory.exists() or not directory.is_dir():
+            return None
+        direct_path = (directory / filename).resolve()
+        if direct_path.exists():
+            return direct_path
+        matches = sorted(directory.rglob(filename))
+        if matches:
+            return matches[0].resolve()
+        return None
 
     def _resolve_override_path(self, workflow: CollaborationWorkflow) -> Path | None:
         if workflow != CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE:

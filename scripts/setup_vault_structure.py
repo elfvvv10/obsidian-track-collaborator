@@ -18,7 +18,7 @@ RECOMMENDED_DIRECTORIES = (
     "Knowledge/Sound Design",
     "Imports/Web Imports",
     "Imports/YouTube Imports",
-    "Templates/Frameworks",
+    "Sources/Frameworks/Music Production",
     "Saved Outputs/answers/General Asks",
     "Saved Outputs/answers/Arrangement Plans",
     "Saved Outputs/answers/Sound Design Brainstorms",

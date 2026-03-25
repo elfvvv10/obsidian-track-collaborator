@@ -45,10 +45,13 @@ Saved Outputs/
     Track Concept Critiques/
 
 Templates/
-  Frameworks/
-    track_critique_framework_v1.md
   track_context_template.md
   session_note_template.md
+
+Sources/
+  Frameworks/
+    Music Production/
+      track_critique_framework_v1.md
 
 Archive/
 ```
@@ -77,7 +80,10 @@ Archive/
 
 ### `Templates/`
 - reusable starting points for new tracks and sessions
-- prompt or workflow scaffolds that behave like reusable templates rather than knowledge notes
+
+### `Sources/`
+- project-supporting source material and internal reference documents
+- the preferred home for framework notes such as `Sources/Frameworks/Music Production/track_critique_framework_v1.md`
 
 ### `Archive/`
 - older material you want to keep out of the active working path without deleting

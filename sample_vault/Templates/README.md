@@ -7,6 +7,5 @@ Current contents:
 - `track_arrangement_template.md`
 - `video_import_template.md`
 - `session_note_template.md`
-- `Frameworks/track_critique_framework_v1.md`
 
-Template-style framework documents belong here when they are meant to shape prompts or workflows rather than act as reusable knowledge notes.
+Framework documents now live under `Sources/Frameworks/...` so they sit with other project-supporting source material rather than reusable note templates.

@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Imports/YouTube Imports/Progressive House/2026-03-24-20-progressive-house-bass-patterns-tricks-that-cha.md",
+                "file": "Sources/Roadmaps/ingestion_roadmap_v2.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "2026-03-24-20-progressive-house-bass-patterns-tricks-that-cha"
+              "title": "ingestion_roadmap_v2"
             }
           }
         ]
@@ -180,20 +180,28 @@
       "bases:Create new base": false
     }
   },
-  "active": "9f8e7cc1c223ba7c",
+  "active": "6283c1982745da4f",
   "lastOpenFiles": [
+    "Sources/System/Obsidian_RAG_Assistant_Roadmap.md",
+    "Sources/Frameworks/Music Production/track_critique_framework_v2.md",
+    "Sources/Frameworks/Music Production/track_critique_framework_v1.md",
+    "Sources/Frameworks/Interaction Design/collaborator_behavior_spec.md",
+    "Sources/README.md",
+    "Sources/Roadmaps/ingestion_roadmap_v2.md",
+    "Sources/System/ingestion_driven_collaborator_roadmap.md",
+    "Imports/YouTube Imports/Progressive House/2026-03-24-20-progressive-house-bass-patterns-tricks-that-cha.md",
+    "Sources/Roadmaps",
+    "Sources/Frameworks/Interaction Design",
+    "Sources/Frameworks/Music Production",
     "Templates/video_import_template.md",
     "Templates/track_arrangement_template.md",
     "Knowledge/Arrangement/progressive_house_arrangement.md",
     "Knowledge/Arrangement/tripchain_arrangement.md",
     "Projects/Current Tracks/Moonlit Driver/track_context.md",
-    "Sources/README.md",
     "Drafts",
-    "Templates/Frameworks/track_critique_framework_v1.md",
     "Templates/track_context_template.md",
     "Templates/session_note_template.md",
-    "Sources/System/ingestion_driven_collaborator_roadmap.md",
-    "Templates/Frameworks",
+    "Sources/Frameworks",
     "Templates/README.md",
     "Imports/README.md",
     "Projects/README.md",
@@ -205,18 +213,10 @@
     "Saved Outputs/answers/Sound Design Brainstorms/2026-03-25-please-share-some-ideas-for-creating-a-p-answer-6.md",
     "Saved Outputs/answers/Sound Design Brainstorms/2026-03-25-please-share-some-ideas-for-creating-a-p-answer-5.md",
     "Saved Outputs/answers/Sound Design Brainstorms/2026-03-25-please-share-some-ideas-for-creating-a-p-answer-4.md",
-    "Saved Outputs/answers/Sound Design Brainstorms/2026-03-25-please-share-some-ideas-for-creating-a-p-answer-3.md",
-    "Saved Outputs/answers/Sound Design Brainstorms/2026-03-25-please-share-some-ideas-for-creating-a-p-answer-2.md",
-    "Saved Outputs/answers/General Asks/2026-03-25-please-share-some-ideas-for-creating-a-p-answer-6.md",
-    "Saved Outputs/answers/General Asks/2026-03-25-please-give-me-some-compositional-ideas--answer.md",
-    "Saved Outputs/answers/General Asks/2026-03-24-bassline-ideas-answer.md",
     "Saved Outputs/critiques/Track Concept Critiques",
     "Saved Outputs/critiques/Genre Fit Reviews",
     "Saved Outputs/critiques",
     "Saved Outputs/research",
-    "Saved Outputs/answers/Sound Design Brainstorms",
-    "Saved Outputs/answers/General Asks",
-    "Saved Outputs/answers/Arrangement Plans",
-    "Saved Outputs/answers"
+    "Saved Outputs/answers/Sound Design Brainstorms"
   ]
 }

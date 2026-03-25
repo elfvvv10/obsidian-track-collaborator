@@ -139,6 +139,30 @@ class FrameworkInjectionTests(unittest.TestCase):
 
             self.assertEqual(framework_text, "Default framework text.")
 
+    def test_vault_sources_framework_is_used_when_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            vault = root / "vault"
+            (vault / "Sources" / "Frameworks" / "Music Production").mkdir(parents=True)
+            (
+                vault
+                / "Sources"
+                / "Frameworks"
+                / "Music Production"
+                / "track_critique_framework_v1.md"
+            ).write_text(
+                "Vault sources framework text.",
+                encoding="utf-8",
+            )
+            config = make_config(root)
+
+            framework_text = FrameworkService(config).get_framework_text(
+                CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE,
+                domain_profile=configured_domain(),
+            )
+
+            self.assertEqual(framework_text, "Vault sources framework text.")
+
     def test_legacy_repo_framework_path_is_still_supported(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
