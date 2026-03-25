@@ -31,6 +31,7 @@ from services.models import (
 from services.query_service import QueryService
 from services.research_service import ResearchService
 from services.track_selector_service import TrackSelectorService, selected_track_index, selected_track_path
+from services.ui_session_helpers import current_track_summary, debug_query_summary, suggestion_groups
 from utils import RetrievalFilters, RetrievalOptions, current_timestamp
 
 
@@ -161,7 +162,8 @@ def _render_sidebar(
         st.caption("Retrieval scope is chosen in the Ask tab so it stays close to the current prompt.")
 
         st.divider()
-        st.subheader("Track Context")
+        st.subheader("YAML Track Context")
+        st.caption("Primary editable Track Context used for prompts, retrieval rewriting, critique mode, and suggested updates.")
         st.text_input(
             "Track ID",
             key="track_context_track_id",
@@ -177,34 +179,39 @@ def _render_sidebar(
             context = query_service.track_context_service.load_or_create(track_id)
             with st.expander("Edit YAML Track Context", expanded=False):
                 with st.form("track_context_editor", clear_on_submit=False, enter_to_submit=False):
-                    st.text_input(
-                        "Track Name",
+                    st.caption("Core Track Info")
+                    core_col_left, core_col_right = st.columns(2)
+                    core_col_left.text_input(
+                        "Name",
                         value=context.track_name or "",
                         key="track_context_track_name",
                     )
-                    st.text_input("Genre", value=context.genre or "", key="track_context_genre")
-                    st.text_input(
+                    core_col_right.text_input("Genre", value=context.genre or "", key="track_context_genre")
+                    detail_col_left, detail_col_right = st.columns(2)
+                    detail_col_left.text_input(
                         "BPM",
                         value="" if context.bpm is None else str(context.bpm),
                         key="track_context_bpm",
                     )
-                    st.text_input("Key", value=context.key or "", key="track_context_key")
-                    st.selectbox(
-                        "Workflow Mode",
+                    detail_col_right.text_input("Key", value=context.key or "", key="track_context_key")
+                    st.caption("Session Focus")
+                    focus_col_left, focus_col_right = st.columns(2)
+                    focus_col_left.selectbox(
+                        "Workflow",
                         options=_TRACK_CONTEXT_WORKFLOW_MODES,
                         index=_TRACK_CONTEXT_WORKFLOW_MODES.index(context.workflow_mode),
                         key="track_context_workflow_mode",
                     )
                     stage_options = [""] + _TRACK_CONTEXT_CURRENT_STAGES
                     current_stage = context.current_stage or ""
-                    st.selectbox(
-                        "Current Stage",
+                    focus_col_right.selectbox(
+                        "Stage",
                         options=stage_options,
                         index=stage_options.index(current_stage),
                         key="track_context_current_stage",
                     )
                     st.text_input(
-                        "Current Section",
+                        "Section",
                         value=context.current_section or "",
                         key="track_context_current_section",
                     )
@@ -213,29 +220,30 @@ def _render_sidebar(
                         value=", ".join(context.vibe),
                         key="track_context_vibe",
                     )
+                    st.caption("References and Working Notes")
                     st.text_area(
                         "Reference Tracks (one per line)",
                         value="\n".join(context.reference_tracks),
                         key="track_context_reference_tracks",
-                        height=80,
+                        height=70,
                     )
                     st.text_area(
                         "Known Issues (one per line)",
                         value="\n".join(context.known_issues),
                         key="track_context_known_issues",
-                        height=80,
+                        height=70,
                     )
                     st.text_area(
                         "Goals (one per line)",
                         value="\n".join(context.goals),
                         key="track_context_goals",
-                        height=80,
+                        height=70,
                     )
                     st.text_area(
                         "Notes (one per line)",
                         value="\n".join(context.notes),
                         key="track_context_notes",
-                        height=100,
+                        height=90,
                     )
                     saved = st.form_submit_button("Save Track Context", use_container_width=True)
                 if saved:
@@ -361,6 +369,7 @@ def _render_ask_tab(
     answer_mount = None
     chat_detail_mount = None
     available_chat_models, chat_model_discovery_error = list_available_chat_models(config)
+    active_track_context = _active_yaml_track_context(query_service)
 
     main_col, control_col = st.columns([3, 1.4], gap="large")
     with control_col:
@@ -392,6 +401,8 @@ def _render_ask_tab(
                 )
 
             with st.expander("Workflow Context", expanded=selected_workflow != CollaborationWorkflow.RESEARCH_SESSION):
+                st.caption("Legacy Markdown Track Context Path")
+                st.caption("Optional legacy path-based context. This is separate from the YAML Track Context controls in the sidebar.")
                 legacy_tracks = TrackSelectorService().list_tracks(config.obsidian_vault_path)
                 track_options = ["None"] + [track["name"] for track in legacy_tracks]
                 selected_track = st.selectbox(
@@ -402,13 +413,13 @@ def _render_ask_tab(
                         legacy_tracks,
                     ),
                     key="workflow_track_selector",
-                    help="Choose a project folder with track_context.md to fill the legacy markdown Track Context Path.",
+                    help="Choose any project folder under Projects/ that contains track_context.md to fill the legacy markdown Track Context Path.",
                 )
                 _apply_legacy_track_selection(selected_track, legacy_tracks)
                 st.text_input(
                     "Track Context Path",
                     key="workflow_track_context_path",
-                    help="Vault-relative project folder or track_context.md path, for example Projects/Moonlit Driver or Projects/Moonlit Driver/track_context.md.",
+                    help="Vault-relative project folder or track_context.md path, for example Projects/Current Tracks/Moonlit Driver or Projects/Current Tracks/Moonlit Driver/track_context.md.",
                 )
                 st.text_input(
                     "Genre / Style",
@@ -517,6 +528,7 @@ def _render_ask_tab(
     chat_workspace_enabled = selected_workflow.value in _CHAT_TASK_WORKFLOWS
 
     with main_col:
+        _render_current_track_summary(active_track_context)
         if chat_workspace_enabled:
             st.markdown("### Session Chat")
             st.caption("Read the latest turn above, then reply immediately below to keep the collaboration moving.")
@@ -659,22 +671,15 @@ def _render_ask_tab(
             st.write(response.answer)
             if response.track_context_suggestions is not None and response.track_context is not None:
                 st.markdown("#### Suggested Track Context Updates")
-                if response.track_context_suggestions.known_issues:
-                    st.markdown("**Known Issues**")
-                    for item in response.track_context_suggestions.known_issues:
-                        st.write(f"- {item}")
-                if response.track_context_suggestions.goals:
-                    st.markdown("**Goals**")
-                    for item in response.track_context_suggestions.goals:
-                        st.write(f"- {item}")
-                if response.track_context_suggestions.notes:
-                    st.markdown("**Notes**")
-                    for item in response.track_context_suggestions.notes:
-                        st.write(f"- {item}")
-                if response.track_context_suggestions.current_stage:
-                    st.write(f"**Current Stage:** {response.track_context_suggestions.current_stage}")
-                if response.track_context_suggestions.current_section:
-                    st.write(f"**Current Section:** {response.track_context_suggestions.current_section}")
+                st.caption("These are review-only suggestions from the latest answer. They are not saved until you apply them.")
+                with st.container(border=True):
+                    for label, value in suggestion_groups(response.track_context_suggestions):
+                        st.markdown(f"**{label}**")
+                        if isinstance(value, list):
+                            for item in value:
+                                st.write(f"- {item}")
+                        else:
+                            st.write(value)
                 if st.button("Apply Suggested Updates", use_container_width=False):
                     try:
                         updated_context = query_service.track_context_service.apply_suggestions(
@@ -694,10 +699,13 @@ def _render_ask_tab(
                             track_context=updated_context,
                             track_context_suggestions=None,
                         )
-                        st.success("Suggested Track Context updates applied.")
+                        st.session_state["track_context_apply_success"] = "Suggested Track Context updates applied."
                         st.rerun()
                     except Exception as exc:
                         st.error(str(exc))
+            success_message = st.session_state.pop("track_context_apply_success", "")
+            if success_message:
+                st.success(success_message)
 
     detail_parent = chat_detail_mount if chat_workspace_enabled and chat_detail_mount is not None else st.container()
     with detail_parent:
@@ -813,7 +821,7 @@ def _render_ask_tab(
                 st.error(str(exc))
 
         if st.session_state["debug_mode"]:
-            _render_debug_section(response)
+            _render_debug_section(response, st.session_state.get("last_question", ""))
 
 
 def _render_research_response(
@@ -921,6 +929,29 @@ def _render_research_response(
             st.error(str(exc))
 
 
+def _active_yaml_track_context(query_service: QueryService):
+    track_id = st.session_state.get("track_context_track_id", "").strip()
+    if not st.session_state.get("use_track_context") or not track_id:
+        return None
+    return query_service.track_context_service.load_or_create(track_id)
+
+
+def _render_current_track_summary(track_context) -> None:
+    title, rows = current_track_summary(track_context)
+    with st.container(border=True):
+        st.markdown("### Current Track")
+        if not rows:
+            st.caption(title)
+            return
+        st.caption(title)
+        left_col, right_col = st.columns(2)
+        midpoint = (len(rows) + 1) // 2
+        for label, value in rows[:midpoint]:
+            left_col.write(f"**{label}:** {value}")
+        for label, value in rows[midpoint:]:
+            right_col.write(f"**{label}:** {value}")
+
+
 def _render_ingest_tab(ingestion_service: IngestionService) -> None:
     st.caption(
         "Use ingestion to save external content into your vault as normal Markdown notes. "
@@ -1022,15 +1053,19 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
         st.warning(warning)
 
 
-def _render_debug_section(response: QueryResponse) -> None:
+def _render_debug_section(response: QueryResponse, original_question: str) -> None:
     with st.expander("Debug Details", expanded=False):
+        st.markdown("**Query Summary**")
+        for label, value in debug_query_summary(original_question, response.debug.rewritten_query):
+            st.write(f"{label}: `{value}`")
+
         metric_cols = st.columns(4)
         metric_cols[0].metric("Initial candidates", len(response.debug.initial_candidates))
         metric_cols[1].metric("Primary chunks", len(response.debug.primary_chunks))
         metric_cols[2].metric("Final chunks", len(response.retrieved_chunks))
         metric_cols[3].metric("Reranking changed order", "Yes" if response.debug.reranking_changed else "No")
 
-        st.markdown("**Retrieval Settings**")
+        st.markdown("**Retrieval / Search Details**")
         st.json(
             {
                 "filters": {
@@ -1094,6 +1129,7 @@ def _render_debug_section(response: QueryResponse) -> None:
                     }
                 )
 
+        st.markdown("**Retrieved Chunks**")
         _render_chunk_list("Initial Retrieval Candidates", response.debug.initial_candidates)
         _render_chunk_list("Primary Selected Local Chunks", response.debug.primary_chunks)
         _render_chunk_list("Final Selected Chunks", response.retrieved_chunks)

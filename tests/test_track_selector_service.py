@@ -52,6 +52,25 @@ class TrackSelectorServiceTests(unittest.TestCase):
                 ],
             )
 
+    def test_finds_nested_project_track_contexts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            vault_path = Path(tmp_dir) / "vault"
+            nested_track = vault_path / "Projects" / "Current Tracks" / "Moonlit Driver"
+            nested_track.mkdir(parents=True)
+            (nested_track / "track_context.md").write_text("", encoding="utf-8")
+
+            tracks = self.service.list_tracks(vault_path)
+
+            self.assertEqual(
+                tracks,
+                [
+                    {
+                        "name": "Current Tracks / Moonlit Driver",
+                        "path": "Projects/Current Tracks/Moonlit Driver/track_context.md",
+                    }
+                ],
+            )
+
     def test_selected_track_path_and_index_support_ui_wiring(self) -> None:
         tracks = [
             {"name": "Alpha Track", "path": "Projects/Alpha Track/track_context.md"},

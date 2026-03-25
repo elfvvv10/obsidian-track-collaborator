@@ -483,6 +483,8 @@ The default save destinations for this step are:
 
 This keeps the draft-vs-curated boundary clean. Workflow outputs remain reviewable working material rather than being treated as curated knowledge automatically.
 
+If you want a cleaner long-term vault layout without breaking compatibility, see [VAULT_ORGANIZATION.md](VAULT_ORGANIZATION.md). The current defaults are still supported, but the repo now includes templates and a non-destructive setup helper for a clearer structure.
+
 ## Example Workflow
 
 ```bash
@@ -501,6 +503,21 @@ A recommended vault structure for electronic music production work is:
 
 ```text
 sample_vault/
+├── Projects/
+│   ├── Current Tracks/
+│   │   └── <Track Name>/
+│   │       ├── track_context.md
+│   │       ├── session_notes/
+│   │       ├── arrangements/
+│   │       ├── sound_design/
+│   │       └── exports/
+│   ├── Track Ideas/
+│   └── Archived Tracks/
+├── Research/
+│   ├── genre_style/
+│   ├── production_techniques/
+│   ├── references/
+│   └── imported_material/
 ├── Knowledge/
 │   ├── Genres/
 │   ├── Arrangement/
@@ -508,20 +525,33 @@ sample_vault/
 │   ├── Drums and Groove/
 │   ├── Mixing/
 │   └── References/
-├── Projects/
-│   ├── Track Ideas/
-│   └── Current Tracks/
 ├── Imports/
 │   ├── Web Imports/
 │   └── YouTube Imports/
+├── Saved Outputs/
+│   ├── answers/
+│   ├── research/
+│   └── critiques/
 ├── Drafts/
 │   ├── General Asks/
 │   ├── Genre Fit Reviews/
 │   ├── Track Concept Critiques/
 │   ├── Arrangement Plans/
 │   └── Sound Design Brainstorms/
-└── Research Sessions/
+├── Research Sessions/
+├── Templates/
+└── Archive/
 ```
+
+Legacy folders such as `Drafts/` and `Research Sessions/` still work as before. The cleaner structure above is a recommended direction, not a forced migration.
+
+The repo also includes a safe starter helper:
+
+```bash
+python scripts/setup_vault_structure.py /path/to/your/vault
+```
+
+That script only creates missing folders and template files. It does not move or delete existing content.
 
 By default, notes in the dedicated draft, research-session, and import folders are excluded from indexing so generated or imported material does not silently become durable knowledge before you opt in.
 

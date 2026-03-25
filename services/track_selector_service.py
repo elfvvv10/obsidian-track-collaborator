@@ -15,15 +15,18 @@ class TrackSelectorService:
             return []
 
         tracks: list[dict[str, str]] = []
-        for child in projects_path.iterdir():
-            if not child.is_dir():
-                continue
-            track_context_path = child / "track_context.md"
+        for track_context_path in projects_path.rglob("track_context.md"):
             if not track_context_path.is_file():
                 continue
+            track_folder = track_context_path.parent
+            try:
+                relative_folder = track_folder.relative_to(projects_path)
+            except ValueError:
+                continue
+            display_name = " / ".join(relative_folder.parts) or track_folder.name
             tracks.append(
                 {
-                    "name": child.name,
+                    "name": display_name,
                     "path": track_context_path.relative_to(vault_path).as_posix(),
                 }
             )
