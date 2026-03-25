@@ -9,6 +9,7 @@ from services.models import TrackContext
 
 VALID_WORKFLOW_MODES = {
     "general",
+    "track_critique",
     "composition",
     "arrangement",
     "sound_design",

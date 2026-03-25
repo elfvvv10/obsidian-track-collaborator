@@ -30,6 +30,7 @@ from services.models import (
 )
 from services.query_service import QueryService
 from services.research_service import ResearchService
+from services.track_selector_service import TrackSelectorService, selected_track_index, selected_track_path
 from utils import RetrievalFilters, RetrievalOptions, current_timestamp
 
 
@@ -314,6 +315,7 @@ def _render_ask_tab(
             "workflow_track_length",
             "workflow_role_of_key_elements",
             "workflow_track_context_path",
+            "workflow_track_selector",
             "track_context_track_id",
             "track_context_track_name",
             "track_context_genre",
@@ -390,6 +392,19 @@ def _render_ask_tab(
                 )
 
             with st.expander("Workflow Context", expanded=selected_workflow != CollaborationWorkflow.RESEARCH_SESSION):
+                legacy_tracks = TrackSelectorService().list_tracks(config.obsidian_vault_path)
+                track_options = ["None"] + [track["name"] for track in legacy_tracks]
+                selected_track = st.selectbox(
+                    "Select Track (from vault)",
+                    options=track_options,
+                    index=selected_track_index(
+                        st.session_state.get("workflow_track_context_path", ""),
+                        legacy_tracks,
+                    ),
+                    key="workflow_track_selector",
+                    help="Choose a project folder with track_context.md to fill the legacy markdown Track Context Path.",
+                )
+                _apply_legacy_track_selection(selected_track, legacy_tracks)
                 st.text_input(
                     "Track Context Path",
                     key="workflow_track_context_path",
@@ -642,6 +657,47 @@ def _render_ask_tab(
                 f"Active chat model: `{response.debug.active_chat_model or st.session_state['active_chat_model']}`"
             )
             st.write(response.answer)
+            if response.track_context_suggestions is not None and response.track_context is not None:
+                st.markdown("#### Suggested Track Context Updates")
+                if response.track_context_suggestions.known_issues:
+                    st.markdown("**Known Issues**")
+                    for item in response.track_context_suggestions.known_issues:
+                        st.write(f"- {item}")
+                if response.track_context_suggestions.goals:
+                    st.markdown("**Goals**")
+                    for item in response.track_context_suggestions.goals:
+                        st.write(f"- {item}")
+                if response.track_context_suggestions.notes:
+                    st.markdown("**Notes**")
+                    for item in response.track_context_suggestions.notes:
+                        st.write(f"- {item}")
+                if response.track_context_suggestions.current_stage:
+                    st.write(f"**Current Stage:** {response.track_context_suggestions.current_stage}")
+                if response.track_context_suggestions.current_section:
+                    st.write(f"**Current Section:** {response.track_context_suggestions.current_section}")
+                if st.button("Apply Suggested Updates", use_container_width=False):
+                    try:
+                        updated_context = query_service.track_context_service.apply_suggestions(
+                            response.track_context.track_id,
+                            response.track_context_suggestions,
+                        )
+                        st.session_state["last_query_response"] = QueryResponse(
+                            answer_result=response.answer_result,
+                            warnings=response.warnings,
+                            linked_context_chunks=response.linked_context_chunks,
+                            web_results=response.web_results,
+                            saved_path=response.saved_path,
+                            debug=response.debug,
+                            domain_profile=response.domain_profile,
+                            collaboration_workflow=response.collaboration_workflow,
+                            workflow_input=response.workflow_input,
+                            track_context=updated_context,
+                            track_context_suggestions=None,
+                        )
+                        st.success("Suggested Track Context updates applied.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(str(exc))
 
     detail_parent = chat_detail_mount if chat_workspace_enabled and chat_detail_mount is not None else st.container()
     with detail_parent:
@@ -994,6 +1050,7 @@ def _render_debug_section(response: QueryResponse) -> None:
                 "retrieval_mode_used": response.debug.retrieval_mode_used,
                 "answer_mode_requested": response.debug.answer_mode_requested,
                 "answer_mode_used": response.debug.answer_mode_used,
+                "rewritten_query": response.debug.rewritten_query,
                 "web_used": response.debug.web_used,
                 "curated_knowledge_chunks": response.debug.curated_knowledge_chunks,
                 "imported_knowledge_chunks": response.debug.imported_knowledge_chunks,
@@ -1241,6 +1298,17 @@ def _current_workflow_input() -> WorkflowInput:
     )
 
 
+def _apply_legacy_track_selection(selected_track: str, tracks: list[dict[str, str]]) -> None:
+    current_path = st.session_state.get("workflow_track_context_path", "").strip()
+    resolved_path = selected_track_path(selected_track, tracks)
+    if resolved_path is None:
+        if current_path in {track["path"] for track in tracks}:
+            st.session_state["workflow_track_context_path"] = ""
+        return
+    if current_path != resolved_path:
+        st.session_state["workflow_track_context_path"] = resolved_path
+
+
 def _split_csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
@@ -1423,6 +1491,7 @@ def _init_session_state(config: AppConfig) -> None:
         "workflow_track_length": "",
         "workflow_role_of_key_elements": "",
         "workflow_track_context_path": "",
+        "workflow_track_selector": "None",
         "track_context_track_id": "",
         "use_track_context": True,
         "track_context_track_name": "",
@@ -1477,6 +1546,7 @@ _CHAT_TASK_WORKFLOWS = {
 
 _TRACK_CONTEXT_WORKFLOW_MODES = [
     "general",
+    "track_critique",
     "composition",
     "arrangement",
     "sound_design",

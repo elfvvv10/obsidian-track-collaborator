@@ -9,7 +9,7 @@ import yaml
 
 from config import AppConfig
 from metadata_parser import parse_markdown_metadata
-from services.models import CollaborationWorkflow, TrackContext
+from services.models import CollaborationWorkflow, TrackContext, TrackContextSuggestions
 from services.track_context_utils import normalize_track_context
 from utils import ensure_directory, get_logger
 
@@ -123,6 +123,24 @@ class TrackContextService:
         self.save(context)
         return context
 
+    def apply_suggestions(
+        self,
+        track_id: str,
+        suggestions: TrackContextSuggestions,
+    ) -> TrackContext:
+        """Apply reviewed assistant suggestions without overwriting existing list values."""
+        context = self.load_or_create(track_id)
+        updates: dict[str, object] = {
+            "known_issues": _merge_unique(context.known_issues, suggestions.known_issues),
+            "goals": _merge_unique(context.goals, suggestions.goals),
+            "notes": _merge_unique(context.notes, suggestions.notes),
+        }
+        if suggestions.current_stage:
+            updates["current_stage"] = suggestions.current_stage
+        if suggestions.current_section:
+            updates["current_section"] = suggestions.current_section
+        return self.update_fields(track_id, updates)
+
     def get_track_context(
         self,
         workflow: CollaborationWorkflow,
@@ -216,3 +234,15 @@ class TrackContextService:
     def _debug_log(self, message: str, *args: object) -> None:
         if self.config.framework_debug:
             logger.info(message, *args)
+
+
+def _merge_unique(existing: list[str], additions: list[str]) -> list[str]:
+    merged = list(existing)
+    seen = {item.strip().lower() for item in existing if item.strip()}
+    for item in additions:
+        cleaned = item.strip()
+        if not cleaned or cleaned.lower() in seen:
+            continue
+        seen.add(cleaned.lower())
+        merged.append(cleaned)
+    return merged

@@ -79,8 +79,10 @@ class PromptService:
         current_tasks = current_tasks or []
         framework_text = self.framework_service.get_framework_text(collaboration_workflow, domain_profile)
         track_context_text = ""
+        critique_instructions = ""
         if use_track_context and track_id and track_context is not None:
             track_context_text = self._format_track_context(track_context)
+            critique_instructions = self._format_critique_instructions(track_context)
         else:
             legacy_track_context = self.track_context_service.get_track_context(
                 collaboration_workflow,
@@ -92,6 +94,7 @@ class PromptService:
             domain_profile=domain_profile,
             collaboration_workflow=collaboration_workflow,
             framework_text=framework_text,
+            critique_instructions=critique_instructions,
             track_context_text=track_context_text,
             recent_conversation=recent_conversation,
             current_tasks=current_tasks,
@@ -168,6 +171,22 @@ class PromptService:
             lines.append("Track context notes:")
             lines.extend(track_context.notes)
         return "\n".join(lines)
+
+    def _format_critique_instructions(self, track_context: TrackContext) -> str:
+        """Return structured critique instructions when critique mode is active."""
+        if track_context.workflow_mode != "track_critique":
+            return ""
+        return (
+            "You are acting as a professional electronic music producer giving structured track critique.\n\n"
+            "Respond using this structure:\n\n"
+            "1. What is working\n"
+            "2. What is not working\n"
+            "3. Likely root cause\n"
+            "4. High-impact changes (prioritized)\n"
+            "5. Optional production experiments\n\n"
+            "Be specific to the track context. Avoid generic advice. "
+            "Prioritize feedback based on known issues, goals, and current section when available."
+        )
 
     def build_research_plan_payload(
         self,
@@ -342,6 +361,7 @@ def _build_system_prompt(
     domain_profile: DomainProfile,
     collaboration_workflow: CollaborationWorkflow,
     framework_text: str = "",
+    critique_instructions: str = "",
     track_context_text: str = "",
     recent_conversation: list[ChatMessage] | None = None,
     current_tasks: list[SessionTask] | None = None,
@@ -383,6 +403,9 @@ def _build_system_prompt(
             + " Balanced mode: prioritize retrieved evidence, allow limited synthesis, and label any "
             "beyond-evidence reasoning with [Inference]."
         )
+
+    if critique_instructions:
+        prompt += f"\n\n{critique_instructions.strip()}"
 
     chat_task_enabled = collaboration_workflow in {
         CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE,

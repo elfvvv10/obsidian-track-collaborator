@@ -288,6 +288,7 @@ class QueryDebugInfo:
     retrieval_mode_used: RetrievalModeUsed = RetrievalModeUsed.LOCAL_ONLY
     answer_mode_requested: AnswerMode = AnswerMode.BALANCED
     answer_mode_used: AnswerMode = AnswerMode.BALANCED
+    rewritten_query: str = ""
     local_retrieval_weak: bool = False
     web_used: bool = False
     evidence_types_used: tuple[str, ...] = ()
@@ -311,6 +312,27 @@ class QueryDebugInfo:
 
 
 @dataclass(slots=True)
+class TrackContextSuggestions:
+    """Assistant-suggested Track Context updates awaiting user review."""
+
+    known_issues: list[str] = field(default_factory=list)
+    goals: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    current_stage: str | None = None
+    current_section: str | None = None
+
+    def is_empty(self) -> bool:
+        """Return whether the suggestion payload contains any actionable updates."""
+        return not (
+            self.known_issues
+            or self.goals
+            or self.notes
+            or self.current_stage
+            or self.current_section
+        )
+
+
+@dataclass(slots=True)
 class QueryResponse:
     """Structured response for query operations."""
 
@@ -324,6 +346,7 @@ class QueryResponse:
     collaboration_workflow: CollaborationWorkflow = CollaborationWorkflow.GENERAL_ASK
     workflow_input: WorkflowInput = field(default_factory=WorkflowInput)
     track_context: TrackContext | None = None
+    track_context_suggestions: TrackContextSuggestions | None = None
 
     @property
     def answer(self) -> str:

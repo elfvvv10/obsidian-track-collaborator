@@ -27,6 +27,8 @@ from services.models import (
     WorkflowInput,
 )
 from services.prompt_service import PromptService, answer_uses_inference, build_citation_sources, enforce_citation_summary
+from services.track_context_suggestion_service import TrackContextSuggestionService
+from services.track_query_rewrite_service import TrackQueryRewriteService
 from services.track_context_service import TrackContextService
 from services.web_alignment_service import WebAlignmentResult, WebAlignmentService
 from services.web_search_service import WebSearchService
@@ -65,6 +67,8 @@ class QueryService:
         self.capture_debug_trace = capture_debug_trace
         self.music_workflow_service = MusicWorkflowService(config)
         self.track_context_service = TrackContextService(config)
+        self.track_query_rewrite_service = TrackQueryRewriteService()
+        self.track_context_suggestion_service = TrackContextSuggestionService()
         self._last_web_alignment: WebAlignmentResult | None = None
         self._last_web_attempts: list[WebSearchAttemptInfo] = []
 
@@ -87,13 +91,14 @@ class QueryService:
         track_context = request.track_context
         if track_context is None and request.use_track_context and request.track_id:
             track_context = self.track_context_service.load_or_create(request.track_id)
+        rewritten_query = self.track_query_rewrite_service.rewrite(request.question, track_context)
         self._last_web_alignment = None
         self._last_web_attempts = []
 
         logger.info("Retrieving relevant notes")
         if not self.capture_debug_trace:
             try:
-                final_chunks = self._retrieve_chunks(retriever, request)
+                final_chunks = self._retrieve_chunks(retriever, request, rewritten_query)
             except RuntimeError as exc:
                 if request.retrieval_mode == RetrievalMode.LOCAL_ONLY:
                     raise
@@ -101,7 +106,7 @@ class QueryService:
                 logger.info("Local retrieval unavailable; continuing with optional web fallback: %s", exc)
             primary_chunks = [chunk for chunk in final_chunks if not chunk.metadata.get("linked_context")]
             web_results, web_warnings = self._run_web_search_if_needed(
-                request.question,
+                rewritten_query,
                 primary_chunks=primary_chunks,
                 retrieval_mode=request.retrieval_mode,
                 web_search_service=web_search_service,
@@ -128,12 +133,12 @@ class QueryService:
             reranking_applied = bool(request.options.rerank or request.options.boost_tags)
             reranking_changed = False
         else:
-            retrieval_debug = self._retrieve_chunks_with_debug(retriever, request)
+            retrieval_debug = self._retrieve_chunks_with_debug(retriever, request, rewritten_query)
             initial_candidates = retrieval_debug.initial_candidates
             primary_chunks = retrieval_debug.primary_chunks
             final_chunks = retrieval_debug.final_chunks
             web_results, web_warnings = self._run_web_search_if_needed(
-                request.question,
+                rewritten_query,
                 primary_chunks=primary_chunks,
                 retrieval_mode=request.retrieval_mode,
                 web_search_service=web_search_service,
@@ -189,6 +194,10 @@ class QueryService:
             if enabled
         )
         trust_counts = _count_trust_categories(answer_result.retrieved_chunks)
+        track_context_suggestions = self.track_context_suggestion_service.suggest(
+            answer_result.answer,
+            track_context,
+        )
 
         if request.auto_save or self.config.auto_save_answer:
             saved_path = save_answer(
@@ -224,6 +233,7 @@ class QueryService:
                 retrieval_mode_used=_resolve_retrieval_mode_used(request.retrieval_mode, web_results),
                 answer_mode_requested=request.answer_mode,
                 answer_mode_used=request.answer_mode,
+                rewritten_query=rewritten_query,
                 local_retrieval_weak=_is_local_retrieval_weak(primary_chunks),
                 web_used=bool(web_results),
                 evidence_types_used=evidence_types_used,
@@ -260,6 +270,7 @@ class QueryService:
             collaboration_workflow=request.collaboration_workflow,
             workflow_input=request.workflow_input,
             track_context=track_context,
+            track_context_suggestions=track_context_suggestions,
         )
     def save(
         self,
@@ -335,12 +346,22 @@ class QueryService:
                 if existing_response is not None
                 else None
             ),
+            track_context_suggestions=(
+                existing_response.track_context_suggestions
+                if existing_response is not None
+                else None
+            ),
         )
 
-    def _retrieve_chunks(self, retriever: Retriever, request: QueryRequest) -> list[RetrievedChunk]:
+    def _retrieve_chunks(
+        self,
+        retriever: Retriever,
+        request: QueryRequest,
+        retrieval_query: str,
+    ) -> list[RetrievedChunk]:
         try:
             return retriever.retrieve(
-                request.question,
+                retrieval_query,
                 filters=request.filters,
                 options=request.options,
                 retrieval_scope=request.retrieval_scope,
@@ -349,15 +370,20 @@ class QueryService:
             if "retrieval_scope" not in str(exc):
                 raise
             return retriever.retrieve(
-                request.question,
+                retrieval_query,
                 filters=request.filters,
                 options=request.options,
             )
 
-    def _retrieve_chunks_with_debug(self, retriever: Retriever, request: QueryRequest):
+    def _retrieve_chunks_with_debug(
+        self,
+        retriever: Retriever,
+        request: QueryRequest,
+        retrieval_query: str,
+    ):
         try:
             return retriever.retrieve_with_debug(
-                request.question,
+                retrieval_query,
                 filters=request.filters,
                 options=request.options,
                 retrieval_scope=request.retrieval_scope,
@@ -366,7 +392,7 @@ class QueryService:
             if "retrieval_scope" not in str(exc):
                 raise
             return retriever.retrieve_with_debug(
-                request.question,
+                retrieval_query,
                 filters=request.filters,
                 options=request.options,
             )
