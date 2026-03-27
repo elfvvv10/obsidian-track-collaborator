@@ -188,7 +188,9 @@ def _render_sidebar(
 
         st.divider()
         st.subheader("YAML Track Context")
-        st.caption("Persistent memory for the current in-progress track. This is separate from reference tracks and legacy markdown context.")
+        st.caption(
+            "Persistent memory for the current in-progress track. This YAML Track Context is the primary track-state system."
+        )
         st.text_input(
             "Track ID",
             key="track_context_track_id",
@@ -215,8 +217,10 @@ def _render_sidebar(
             help="Clear the active Track Context for this session without deleting the saved YAML file.",
         )
         if load_clicked and typed_track_id:
-            context_exists = query_service.track_context_service.exists(typed_track_id)
-            loaded_context = query_service.track_context_service.load_or_create(typed_track_id)
+            context_exists = query_service.track_context_service.canonical_exists(typed_track_id)
+            loaded_context = query_service.track_context_service.load_or_create_canonical_track_context(
+                typed_track_id
+            )
             st.session_state["active_track_context_id"] = typed_track_id
             st.session_state["active_track_context_loaded_existing"] = context_exists
             st.session_state["current_track_context"] = loaded_context
@@ -495,7 +499,10 @@ def _render_ask_tab(
 
         with st.expander("Workflow Context", expanded=selected_workflow != CollaborationWorkflow.RESEARCH_SESSION):
             st.caption("Legacy Markdown Workflow Context")
-            st.caption("Optional path-based workflow context. This is separate from the YAML Track Context sidebar and is kept for backward compatibility.")
+            st.caption(
+                "Optional path-based compatibility input for older `track_context.md` files. "
+                "Use YAML Track Context as the primary track-state system."
+            )
             legacy_tracks = TrackSelectorService().list_tracks(config.obsidian_vault_path)
             track_options = ["None"] + [track["name"] for track in legacy_tracks]
             selected_track = st.selectbox(

@@ -62,7 +62,12 @@ class ResearchService:
         workflow_plan = self.music_workflow_service.build_research_plan(request)
         track_context = None
         if request.use_track_context and request.track_id:
-            track_context = query_service.track_context_service.load_or_create(request.track_id)
+            load_track_context = getattr(
+                query_service.track_context_service,
+                "load_or_create_canonical_track_context",
+                query_service.track_context_service.load_or_create,
+            )
+            track_context = load_track_context(request.track_id)
 
         subquestions, planning_notes = self._generate_subquestions(
             workflow_plan.prompt_text,

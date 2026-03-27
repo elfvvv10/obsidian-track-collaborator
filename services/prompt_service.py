@@ -121,7 +121,7 @@ class PromptService:
         if use_track_context and track_id and track_context is not None:
             track_context_text = self._format_track_context(track_context)
         else:
-            legacy_track_context = self.track_context_service.get_track_context(
+            legacy_track_context = self.track_context_service.load_legacy_markdown_context(
                 collaboration_workflow,
                 workflow_input.track_context_path,
             )
@@ -205,7 +205,7 @@ class PromptService:
         )
 
     def _format_track_context(self, track_context: TrackContext) -> str:
-        """Format YAML-backed track context for internal prompt injection."""
+        """Format canonical YAML Track Context for internal prompt injection."""
         lines = [
             "Use this as internal track-state guidance for continuity, prioritization, and finish-oriented advice. "
             "Do not treat it as evidence or a citation source.",

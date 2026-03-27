@@ -1,4 +1,4 @@
-"""Track-context loading, persistence, and prompt formatting helpers."""
+"""Canonical YAML Track Context helpers with legacy markdown compatibility bridges."""
 
 from __future__ import annotations
 
@@ -43,8 +43,8 @@ _TRACK_CONTEXT_FIELDS: tuple[str, ...] = (
 
 
 @dataclass(slots=True)
-class TrackContextResult:
-    """Parsed track-context payload and prompt-ready block."""
+class LegacyTrackContextResult:
+    """Parsed legacy markdown track-context payload and prompt-ready block."""
 
     resolved_path: Path | None = None
     frontmatter: dict[str, object] | None = None
@@ -53,23 +53,34 @@ class TrackContextResult:
     found: bool = False
 
 
+TrackContextResult = LegacyTrackContextResult
+
+
 class TrackContextService:
-    """Resolve, parse, format, and persist per-track context documents."""
+    """Load/save canonical YAML Track Context and bridge legacy markdown imports."""
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
 
     @property
     def yaml_directory(self) -> Path:
-        """Return the storage directory for YAML-backed track contexts."""
+        """Return the storage directory for canonical YAML Track Context files."""
         return self.config.obsidian_output_path / "track_contexts"
 
     def exists(self, track_id: str) -> bool:
-        """Return whether a YAML track context already exists."""
+        """Compatibility wrapper for checking canonical YAML Track Context existence."""
+        return self.canonical_exists(track_id)
+
+    def canonical_exists(self, track_id: str) -> bool:
+        """Return whether a canonical YAML Track Context already exists."""
         return self._yaml_path(track_id).exists()
 
     def load(self, track_id: str) -> TrackContext:
-        """Load and normalize a YAML track context file."""
+        """Compatibility wrapper for canonical YAML Track Context loading."""
+        return self.load_canonical_track_context(track_id)
+
+    def load_canonical_track_context(self, track_id: str) -> TrackContext:
+        """Load and normalize a canonical YAML Track Context file."""
         path = self._yaml_path(track_id)
         raw_text = path.read_text(encoding="utf-8") if path.exists() else ""
         if not raw_text.strip():
@@ -83,19 +94,31 @@ class TrackContextService:
         return context
 
     def create_default(self, track_id: str) -> TrackContext:
-        """Create a minimal normalized YAML track context on disk."""
+        """Compatibility wrapper for canonical YAML Track Context creation."""
+        return self.create_default_canonical_track_context(track_id)
+
+    def create_default_canonical_track_context(self, track_id: str) -> TrackContext:
+        """Create a minimal canonical YAML Track Context on disk."""
         context = normalize_track_context({"track_id": track_id})
-        self.save(context)
+        self.save_canonical_track_context(context)
         return context
 
     def load_or_create(self, track_id: str) -> TrackContext:
-        """Load an existing YAML track context or create a default one."""
-        if self.exists(track_id):
-            return self.load(track_id)
-        return self.create_default(track_id)
+        """Compatibility wrapper for canonical YAML Track Context load/create."""
+        return self.load_or_create_canonical_track_context(track_id)
+
+    def load_or_create_canonical_track_context(self, track_id: str) -> TrackContext:
+        """Load an existing canonical YAML Track Context or create a default one."""
+        if self.canonical_exists(track_id):
+            return self.load_canonical_track_context(track_id)
+        return self.create_default_canonical_track_context(track_id)
 
     def save(self, context: TrackContext) -> Path:
-        """Persist a normalized YAML track context."""
+        """Compatibility wrapper for canonical YAML Track Context persistence."""
+        return self.save_canonical_track_context(context)
+
+    def save_canonical_track_context(self, context: TrackContext) -> Path:
+        """Persist a normalized canonical YAML Track Context."""
         normalized = normalize_track_context(asdict(context))
         destination = self._yaml_path(normalized.track_id)
         ensure_directory(destination.parent)
@@ -110,12 +133,20 @@ class TrackContextService:
         return destination
 
     def update_fields(self, track_id: str, updates: dict[str, object]) -> TrackContext:
-        """Merge updated fields into an existing YAML track context."""
-        existing = asdict(self.load_or_create(track_id))
+        """Compatibility wrapper for canonical YAML Track Context updates."""
+        return self.update_canonical_track_context_fields(track_id, updates)
+
+    def update_canonical_track_context_fields(
+        self,
+        track_id: str,
+        updates: dict[str, object],
+    ) -> TrackContext:
+        """Merge updated fields into an existing canonical YAML Track Context."""
+        existing = asdict(self.load_or_create_canonical_track_context(track_id))
         existing.update(updates)
         existing["track_id"] = track_id
         context = normalize_track_context(existing)
-        self.save(context)
+        self.save_canonical_track_context(context)
         return context
 
     def apply_suggestions(
@@ -123,8 +154,8 @@ class TrackContextService:
         track_id: str,
         suggestions: TrackContextSuggestions,
     ) -> TrackContext:
-        """Apply reviewed assistant suggestions without overwriting existing list values."""
-        context = self.load_or_create(track_id)
+        """Apply reviewed assistant suggestions to canonical YAML Track Context."""
+        context = self.load_or_create_canonical_track_context(track_id)
         updates: dict[str, object] = {
             "known_issues": _merge_unique(context.known_issues, suggestions.known_issues),
             "goals": _merge_unique(context.goals, suggestions.goals),
@@ -133,45 +164,52 @@ class TrackContextService:
             updates["current_stage"] = suggestions.current_stage
         if suggestions.current_problem:
             updates["current_problem"] = suggestions.current_problem
-        return self.update_fields(track_id, updates)
+        return self.update_canonical_track_context_fields(track_id, updates)
 
     def get_track_context(
         self,
         workflow: CollaborationWorkflow,
         track_context_path: str | None,
-    ) -> TrackContextResult:
-        """Return prompt-ready legacy markdown context for supported workflows."""
+    ) -> LegacyTrackContextResult:
+        """Compatibility wrapper for loading legacy markdown workflow context."""
+        return self.load_legacy_markdown_context(workflow, track_context_path)
+
+    def load_legacy_markdown_context(
+        self,
+        workflow: CollaborationWorkflow,
+        track_context_path: str | None,
+    ) -> LegacyTrackContextResult:
+        """Return prompt-ready legacy markdown context for compatibility workflows only."""
         if workflow not in {
             CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE,
             CollaborationWorkflow.ARRANGEMENT_PLANNER,
         }:
-            return TrackContextResult()
+            return LegacyTrackContextResult()
 
-        resolved_path = self._resolve_track_context_path(track_context_path)
+        resolved_path = self.resolve_legacy_track_context_path(track_context_path)
         if resolved_path is None:
             self._debug_log(
-                "Track context lookup: no track_context_path provided for workflow=%s.",
+                "Legacy track context lookup: no track_context_path provided for workflow=%s.",
                 workflow.value,
             )
-            return TrackContextResult()
+            return LegacyTrackContextResult()
 
         if not resolved_path.exists() or not resolved_path.is_file():
             self._debug_log(
-                "Track context lookup: path missing for workflow=%s at %s.",
+                "Legacy track context lookup: path missing for workflow=%s at %s.",
                 workflow.value,
                 resolved_path,
             )
-            return TrackContextResult(resolved_path=resolved_path)
+            return LegacyTrackContextResult(resolved_path=resolved_path)
 
-        raw_content = resolved_path.read_text(encoding="utf-8")
-        frontmatter, body = parse_markdown_metadata(raw_content)
+        frontmatter, body = self.parse_legacy_markdown_track_context(resolved_path)
         prompt_block = self._format_prompt_block(frontmatter, body)
         self._debug_log(
-            "Track context lookup: loaded context for workflow=%s from %s.",
+            "Legacy track context lookup: loaded compatibility context for workflow=%s from %s.",
             workflow.value,
             resolved_path,
         )
-        return TrackContextResult(
+        return LegacyTrackContextResult(
             resolved_path=resolved_path,
             frontmatter=frontmatter,
             body=body,
@@ -179,11 +217,68 @@ class TrackContextService:
             found=bool(prompt_block),
         )
 
+    def parse_legacy_markdown_track_context(
+        self,
+        path_or_track_context_path: Path | str,
+    ) -> tuple[dict[str, object], str]:
+        """Parse a legacy markdown Track Context file into frontmatter and body."""
+        resolved_path = (
+            path_or_track_context_path
+            if isinstance(path_or_track_context_path, Path)
+            else self.resolve_legacy_track_context_path(path_or_track_context_path)
+        )
+        if resolved_path is None:
+            return {}, ""
+        raw_content = resolved_path.read_text(encoding="utf-8")
+        return parse_markdown_metadata(raw_content)
+
+    def import_legacy_markdown_track_context(
+        self,
+        track_id: str,
+        track_context_path: str,
+    ) -> TrackContext:
+        """Normalize a legacy markdown Track Context into the canonical YAML shape."""
+        frontmatter, _body = self.parse_legacy_markdown_track_context(track_context_path)
+        normalized = normalize_track_context(
+            {
+                "track_id": track_id,
+                "track_name": frontmatter.get("track_title"),
+                "genre": frontmatter.get("primary_genre"),
+                "bpm": frontmatter.get("bpm"),
+                "key": frontmatter.get("key"),
+                "vibe": _coerce_string_list(frontmatter.get("vibe")),
+                "reference_tracks": _coerce_string_list(frontmatter.get("reference_tracks")),
+                "current_stage": _normalize_legacy_stage(frontmatter.get("status")),
+                "current_problem": _first_item(frontmatter.get("current_issues")),
+                "known_issues": _coerce_string_list(frontmatter.get("current_issues")),
+                "goals": _coerce_string_list(frontmatter.get("priority_focus")),
+            }
+        )
+        return normalized
+
+    def migrate_legacy_markdown_to_canonical_yaml(
+        self,
+        track_id: str,
+        track_context_path: str,
+        *,
+        overwrite: bool = False,
+    ) -> TrackContext:
+        """Persist a legacy markdown Track Context into canonical YAML form."""
+        if self.canonical_exists(track_id) and not overwrite:
+            return self.load_canonical_track_context(track_id)
+        migrated = self.import_legacy_markdown_track_context(track_id, track_context_path)
+        self.save_canonical_track_context(migrated)
+        return migrated
+
     def _yaml_path(self, track_id: str) -> Path:
         safe_track_id = (track_id or "default_track").strip() or "default_track"
         return self.yaml_directory / f"{safe_track_id}.yaml"
 
     def _resolve_track_context_path(self, track_context_path: str | None) -> Path | None:
+        return self.resolve_legacy_track_context_path(track_context_path)
+
+    def resolve_legacy_track_context_path(self, track_context_path: str | None) -> Path | None:
+        """Resolve a legacy markdown Track Context path from the vault."""
         raw_path = (track_context_path or "").strip()
         if not raw_path:
             return None
@@ -210,8 +305,9 @@ class TrackContextService:
         if summary_block:
             summary_block = f"Track context summary:\n{summary_block}"
         instruction = (
-            "Use this as internal track-state guidance for continuity, prioritization, and finish-oriented advice. "
-            "Do not treat it as evidence or a citation source."
+            "Use this legacy markdown context as compatibility-only internal track-state guidance. "
+            "Canonical track state lives in the YAML Track Context system. "
+            "Do not treat this as evidence or a citation source."
         )
         content_parts = [instruction]
         if summary_block:
@@ -268,3 +364,32 @@ def _merge_unique(existing: list[str], additions: list[str]) -> list[str]:
         seen.add(cleaned.lower())
         merged.append(cleaned)
     return merged
+
+
+def _coerce_string_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    cleaned = str(value).strip() if value is not None else ""
+    return [cleaned] if cleaned else []
+
+
+def _first_item(value: object) -> str | None:
+    items = _coerce_string_list(value)
+    return items[0] if items else None
+
+
+def _normalize_legacy_stage(value: object) -> str | None:
+    text = str(value).strip().lower() if value is not None else ""
+    if not text:
+        return None
+    if "arrang" in text:
+        return "arrangement"
+    if "writ" in text or "draft" in text or "idea" in text:
+        return "writing"
+    if "mix" in text:
+        return "mixing"
+    if "sound" in text:
+        return "sound_design"
+    if "finish" in text or "complete" in text:
+        return "finalizing"
+    return None

@@ -115,7 +115,12 @@ class QueryService:
         workflow_plan = self.music_workflow_service.build_query_plan(request)
         track_context = request.track_context
         if track_context is None and request.use_track_context and request.track_id:
-            track_context = self.track_context_service.load_or_create(request.track_id)
+            load_track_context = getattr(
+                self.track_context_service,
+                "load_or_create_canonical_track_context",
+                self.track_context_service.load_or_create,
+            )
+            track_context = load_track_context(request.track_id)
         eligible_import_genres = self.import_genre_service.eligible_genres(track_context)
         rewritten_query = self.track_query_rewrite_service.rewrite(request.question, track_context)
         self._last_web_alignment = None
