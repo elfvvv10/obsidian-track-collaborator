@@ -106,11 +106,11 @@ def rerank_chunks(
 
         exact_title_match_boost = 0.0
         if normalized_query and normalized_title and normalized_query in normalized_title:
-            exact_title_match_boost = 3.0
+            exact_title_match_boost = 1.5 if len(query_terms) > 1 else 0.5
 
         title_token_overlap_boost = 0.0
         if query_terms and title_terms:
-            title_token_overlap_boost = (len(query_terms & title_terms) / len(query_terms)) * 1.5
+            title_token_overlap_boost = (len(query_terms & title_terms) / len(query_terms)) * 0.75
 
         candidate.component_scores["title_exact_match"] = exact_title_match_boost
         candidate.component_scores["title_token_overlap_boost"] = title_token_overlap_boost
