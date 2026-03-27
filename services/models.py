@@ -431,6 +431,24 @@ class SessionTask:
     source: str
     created_at: str
     notes: str = ""
+    priority: str = "medium"
+    linked_section: str = ""
+    completed_at: str | None = None
+
+
+@dataclass(slots=True)
+class PersistedTrackTask:
+    """A canonical persisted task item tied to a YAML Track Context track."""
+
+    id: str
+    text: str
+    status: str
+    priority: str
+    linked_section: str
+    created_from: str
+    created_at: str
+    completed_at: str | None = None
+    notes: str = ""
 
 
 @dataclass(slots=True)

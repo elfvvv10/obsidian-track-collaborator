@@ -224,6 +224,8 @@ def _render_sidebar(
             st.session_state["active_track_context_id"] = typed_track_id
             st.session_state["active_track_context_loaded_existing"] = context_exists
             st.session_state["current_track_context"] = loaded_context
+            st.session_state["session_tasks"] = query_service.track_task_service.load_session_tasks(typed_track_id)
+            st.session_state["session_tasks_track_id"] = typed_track_id
             st.session_state["active_section_focus"] = ""
             st.session_state["track_context_editor_synced_track_id"] = ""
             st.rerun()
@@ -231,6 +233,8 @@ def _render_sidebar(
             st.session_state["active_track_context_id"] = ""
             st.session_state["active_track_context_loaded_existing"] = False
             st.session_state["current_track_context"] = None
+            st.session_state["session_tasks"] = []
+            st.session_state["session_tasks_track_id"] = ""
             st.session_state["active_section_focus"] = ""
             st.session_state["track_context_editor_synced_track_id"] = ""
             st.rerun()
@@ -239,8 +243,11 @@ def _render_sidebar(
         if st.session_state.get("use_track_context") and active_track_id:
             sidebar_context = st.session_state.get("current_track_context")
             if sidebar_context is None or getattr(sidebar_context, "track_id", "") != active_track_id:
-                sidebar_context = query_service.track_context_service.load(active_track_id)
+                sidebar_context = query_service.track_context_service.load_canonical_track_context(active_track_id)
                 st.session_state["current_track_context"] = sidebar_context
+            if st.session_state.get("session_tasks_track_id", "") != active_track_id:
+                st.session_state["session_tasks"] = query_service.track_task_service.load_session_tasks(active_track_id)
+                st.session_state["session_tasks_track_id"] = active_track_id
             _sync_track_context_editor_state(sidebar_context)
             status_title, status_caption = track_context_status(
                 use_track_context=True,
@@ -733,7 +740,7 @@ def _render_ask_tab(
                 save_caption += f" Saved answers will include Track Context metadata for `{active_track_context.track_name or active_track_context.track_id}`."
             st.caption(save_caption)
 
-        _render_task_panel()
+        _render_task_panel(query_service)
         chat_detail_mount = st.container()
 
     chat_workspace_enabled = selected_workflow.value in _CHAT_TASK_WORKFLOWS
@@ -1800,27 +1807,48 @@ def _render_chat_debug_panel(workflow_value: str) -> None:
         st.write(f"last_query_response exists: `{st.session_state.get('last_query_response') is not None}`")
 
 
-def _render_task_panel() -> None:
-    with st.expander("Session Tasks", expanded=False):
-        st.caption("Tasks are session-only and are used as internal execution context for critique, arrangement, and sound-design workflows.")
+def _render_task_panel(query_service: QueryService) -> None:
+    active_track_id = _active_yaml_track_id() or ""
+    persisted_mode = bool(st.session_state.get("use_track_context") and active_track_id)
+    panel_title = "Track Tasks" if persisted_mode else "Session Tasks"
+    with st.expander(panel_title, expanded=False):
+        if persisted_mode:
+            st.caption(
+                "Tasks are persisted per active YAML track and used as internal execution context for critique, arrangement, and sound-design workflows."
+            )
+        else:
+            st.caption(
+                "Tasks are session-only when no active YAML track is loaded and are used as internal execution context for critique, arrangement, and sound-design workflows."
+            )
         with st.form("add_task_form", clear_on_submit=False, enter_to_submit=False):
             st.text_input("Task", key="new_task_text", placeholder="Add a focused production task")
             st.text_input("Notes (optional)", key="new_task_notes", placeholder="Optional detail")
             add_task = st.form_submit_button("Add Task", use_container_width=True)
 
         if add_task and st.session_state["new_task_text"].strip():
-            tasks = list(st.session_state["session_tasks"])
-            tasks.append(
-                SessionTask(
-                    id=uuid4().hex,
+            if persisted_mode:
+                query_service.track_task_service.add_task(
+                    active_track_id,
                     text=st.session_state["new_task_text"].strip(),
-                    status="open",
-                    source="user",
-                    created_at=current_timestamp(),
+                    created_from="user",
+                    linked_section=st.session_state.get("active_section_focus", "").strip(),
                     notes=st.session_state["new_task_notes"].strip(),
                 )
-            )
-            st.session_state["session_tasks"] = tasks
+                st.session_state["session_tasks"] = query_service.track_task_service.load_session_tasks(active_track_id)
+                st.session_state["session_tasks_track_id"] = active_track_id
+            else:
+                tasks = list(st.session_state["session_tasks"])
+                tasks.append(
+                    SessionTask(
+                        id=uuid4().hex,
+                        text=st.session_state["new_task_text"].strip(),
+                        status="open",
+                        source="user",
+                        created_at=current_timestamp(),
+                        notes=st.session_state["new_task_notes"].strip(),
+                    )
+                )
+                st.session_state["session_tasks"] = tasks
             st.session_state["new_task_text"] = ""
             st.session_state["new_task_notes"] = ""
             st.rerun()
@@ -1830,40 +1858,64 @@ def _render_task_panel() -> None:
 
         st.markdown("**Open Tasks**")
         if not open_tasks:
-            st.caption("No open tasks in this session.")
+            st.caption("No open tasks.")
         for task in open_tasks:
-            _render_task_actions(task)
+            _render_task_actions(task, query_service=query_service)
 
         st.markdown("**Completed Tasks**")
         if not completed_tasks:
             st.caption("No completed tasks yet.")
         for task in completed_tasks:
-            _render_task_actions(task)
+            _render_task_actions(task, query_service=query_service)
 
 
-def _render_task_actions(task: SessionTask) -> None:
+def _render_task_actions(task: SessionTask, *, query_service: QueryService) -> None:
+    active_track_id = _active_yaml_track_id() or ""
+    persisted_mode = bool(st.session_state.get("use_track_context") and active_track_id)
     cols = st.columns([4, 1, 1])
+    meta_parts: list[str] = []
+    if task.priority.strip() and task.priority.strip().lower() != "medium":
+        meta_parts.append(task.priority.strip())
+    if task.linked_section.strip():
+        meta_parts.append(task.linked_section.strip())
+    meta_suffix = f" [{' | '.join(meta_parts)}]" if meta_parts else ""
     note_suffix = f" ({task.notes})" if task.notes else ""
-    cols[0].write(f"{'[ ]' if task.status == 'open' else '[x]'} {task.text}{note_suffix}")
+    cols[0].write(f"{'[ ]' if task.status == 'open' else '[x]'} {task.text}{meta_suffix}{note_suffix}")
     toggle_label = "Done" if task.status == "open" else "Reopen"
     if cols[1].button(toggle_label, key=f"task-toggle-{task.id}", use_container_width=True):
-        updated_tasks: list[SessionTask] = []
-        for existing_task in st.session_state["session_tasks"]:
-            if existing_task.id == task.id:
-                updated_tasks.append(
-                    replace(
-                        existing_task,
-                        status="completed" if existing_task.status == "open" else "open",
-                    )
+        if persisted_mode:
+            query_service.track_task_service.complete_task(
+                active_track_id,
+                task.id,
+                completed=task.status == "open",
+            )
                 )
-            else:
-                updated_tasks.append(existing_task)
-        st.session_state["session_tasks"] = updated_tasks
+            st.session_state["session_tasks"] = query_service.track_task_service.load_session_tasks(active_track_id)
+            st.session_state["session_tasks_track_id"] = active_track_id
+        else:
+            updated_tasks: list[SessionTask] = []
+            for existing_task in st.session_state["session_tasks"]:
+                if existing_task.id == task.id:
+                    updated_tasks.append(
+                        replace(
+                            existing_task,
+                            status="completed" if existing_task.status == "open" else "open",
+                            completed_at=current_timestamp() if existing_task.status == "open" else None,
+                        )
+                    )
+                else:
+                    updated_tasks.append(existing_task)
+            st.session_state["session_tasks"] = updated_tasks
         st.rerun()
     if cols[2].button("Delete", key=f"task-delete-{task.id}", use_container_width=True):
-        st.session_state["session_tasks"] = [
-            existing_task for existing_task in st.session_state["session_tasks"] if existing_task.id != task.id
-        ]
+        if persisted_mode:
+            query_service.track_task_service.delete_task(active_track_id, task.id)
+            st.session_state["session_tasks"] = query_service.track_task_service.load_session_tasks(active_track_id)
+            st.session_state["session_tasks_track_id"] = active_track_id
+        else:
+            st.session_state["session_tasks"] = [
+                existing_task for existing_task in st.session_state["session_tasks"] if existing_task.id != task.id
+            ]
         st.rerun()
 
 
@@ -1950,6 +2002,7 @@ def _init_session_state(config: AppConfig) -> None:
         "track_context_goals": "",
         "chat_messages": [],
         "session_tasks": [],
+        "session_tasks_track_id": "",
         "new_task_text": "",
         "new_task_notes": "",
         "max_subquestions": 3,

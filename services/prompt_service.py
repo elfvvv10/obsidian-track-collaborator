@@ -1438,6 +1438,13 @@ def _format_current_tasks_block(current_tasks: list[SessionTask]) -> str:
             continue
         checkbox = "[ ]" if task.status == "open" else "[x]"
         line = f"{checkbox} {task.text.strip()}"
+        metadata_parts: list[str] = []
+        if task.priority.strip() and task.priority.strip().lower() != "medium":
+            metadata_parts.append(f"priority: {task.priority.strip()}")
+        if task.linked_section.strip():
+            metadata_parts.append(f"section: {task.linked_section.strip()}")
+        if metadata_parts:
+            line += " [" + " | ".join(metadata_parts) + "]"
         if task.notes.strip():
             line += f" ({task.notes.strip()})"
         lines.append(line)

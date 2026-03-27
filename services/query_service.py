@@ -47,6 +47,7 @@ from services.prompt_service import (
 from services.track_context_suggestion_service import TrackContextSuggestionService
 from services.track_query_rewrite_service import TrackQueryRewriteService
 from services.track_context_service import TrackContextService
+from services.track_task_service import TrackTaskService
 from services.track_context_update_service import TrackContextUpdateService
 from services.web_alignment_service import WebAlignmentResult, WebAlignmentService
 from services.web_search_service import WebSearchService
@@ -73,6 +74,7 @@ class QueryService:
         web_search_service_cls: type[WebSearchService] = WebSearchService,
         prompt_service_cls: type[PromptService] = PromptService,
         web_alignment_service_cls: type[WebAlignmentService] = WebAlignmentService,
+        track_task_service_cls: type[TrackTaskService] = TrackTaskService,
         capture_debug_trace: bool = True,
     ) -> None:
         self.config = config
@@ -83,6 +85,7 @@ class QueryService:
         self.web_search_service_cls = web_search_service_cls
         self.prompt_service_cls = prompt_service_cls
         self.web_alignment_service_cls = web_alignment_service_cls
+        self.track_task_service = track_task_service_cls(config)
         self.capture_debug_trace = capture_debug_trace
         self.music_workflow_service = MusicWorkflowService(config)
         self.import_genre_service = ImportGenreService(config)
@@ -121,6 +124,9 @@ class QueryService:
                 self.track_context_service.load_or_create,
             )
             track_context = load_track_context(request.track_id)
+        current_tasks = list(request.current_tasks)
+        if track_context is not None and request.use_track_context:
+            current_tasks = self.track_task_service.load_session_tasks(track_context.track_id)
         eligible_import_genres = self.import_genre_service.eligible_genres(track_context)
         rewritten_query = self.track_query_rewrite_service.rewrite(request.question, track_context)
         self._last_web_alignment = None
@@ -165,7 +171,7 @@ class QueryService:
                 track_context=track_context,
                 section_focus=request.section_focus,
                 recent_conversation=request.recent_conversation,
-                current_tasks=request.current_tasks,
+                current_tasks=current_tasks,
                 web_alignment=self._last_web_alignment,
             )
             answer_result, track_context_update = self._answer_with_track_context_update(
@@ -217,7 +223,7 @@ class QueryService:
                 track_context=track_context,
                 section_focus=request.section_focus,
                 recent_conversation=request.recent_conversation,
-                current_tasks=request.current_tasks,
+                current_tasks=current_tasks,
                 web_alignment=self._last_web_alignment,
             )
             answer_result, track_context_update = self._answer_with_track_context_update(
