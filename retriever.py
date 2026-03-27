@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from config import AppConfig
 from model_clients import EmbeddingClient
@@ -28,7 +28,7 @@ class RetrievalDebugResult:
     final_chunks: list[RetrievedChunk]
     reranking_applied: bool
     reranking_changed: bool
-    reranking_details: list[RetrievalScoreDebug]
+    reranking_details: list[RetrievalScoreDebug] = field(default_factory=list)
 
 
 class Retriever:

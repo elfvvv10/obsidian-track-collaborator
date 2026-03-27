@@ -597,15 +597,36 @@ class QueryService:
                         filters=request.filters,
                         options=options,
                         retrieval_scope=request.retrieval_scope,
+                        track_context=track_context,
+                        collaboration_workflow=request.collaboration_workflow,
+                        section_focus=request.section_focus,
                     )
                 except TypeError as inner_exc:
-                    if "retrieval_scope" not in str(inner_exc):
+                    inner_message = str(inner_exc)
+                    if "unexpected keyword argument" in inner_message:
+                        try:
+                            result = retriever.retrieve_with_debug(
+                                retrieval_query,
+                                filters=request.filters,
+                                options=options,
+                                retrieval_scope=request.retrieval_scope,
+                            )
+                        except TypeError as final_exc:
+                            if "retrieval_scope" not in str(final_exc):
+                                raise
+                            result = retriever.retrieve_with_debug(
+                                retrieval_query,
+                                filters=request.filters,
+                                options=options,
+                            )
+                    elif "retrieval_scope" in inner_message:
+                        result = retriever.retrieve_with_debug(
+                            retrieval_query,
+                            filters=request.filters,
+                            options=options,
+                        )
+                    else:
                         raise
-                    result = retriever.retrieve_with_debug(
-                        retrieval_query,
-                        filters=request.filters,
-                        options=options,
-                    )
             elif "retrieval_scope" in message:
                 result = retriever.retrieve_with_debug(
                     retrieval_query,

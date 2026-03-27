@@ -24,7 +24,7 @@ class RerankerTests(unittest.TestCase):
             ),
         ]
 
-        reranked = rerank_chunks("How do AI agents use retrieval tools?", chunks)
+        reranked, _  = rerank_chunks("How do AI agents use retrieval tools?", chunks)
 
         self.assertEqual(reranked[0].metadata["note_title"], "Agents")
 
@@ -51,7 +51,7 @@ class RerankerTests(unittest.TestCase):
             ),
         ]
 
-        reranked = rerank_chunks("boris brejcha", chunks)
+        reranked, _  = rerank_chunks("boris brejcha", chunks)
 
         self.assertEqual(reranked[0].metadata["note_title"], "Boris Brejcha Tutorial Breakdown")
 

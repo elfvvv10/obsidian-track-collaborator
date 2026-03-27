@@ -49,6 +49,24 @@ class _CandidateScore:
     component_scores: dict[str, float]
 
 
+@dataclass(slots=True)
+class _RerankResult:
+    """Compatibility wrapper for old list-style and new tuple-unpacking callers."""
+
+    chunks: list[RetrievedChunk]
+    details: list[RetrievalScoreDebug]
+
+    def __iter__(self):
+        yield self.chunks
+        yield self.details
+
+    def __getitem__(self, index):
+        return self.chunks[index]
+
+    def __len__(self) -> int:
+        return len(self.chunks)
+
+
 def rerank_chunks(
     query: str,
     chunks: list[RetrievedChunk],
@@ -62,14 +80,16 @@ def rerank_chunks(
 ) -> tuple[list[RetrievedChunk], list[RetrievalScoreDebug]]:
     """Rerank retrieved chunks with explicit weighted scoring."""
     if not chunks:
-        return [], []
+        return _RerankResult([], [])
 
+    normalized_query = " ".join(_tokenize(query))
     query_terms = set(_tokenize(query))
     normalized_boost_tags = {tag.lower() for tag in boost_tags if tag}
     scoring_context_terms = _track_context_terms(track_context, section_focus=section_focus or "")
 
-    scored_candidates = [
-        _score_candidate(
+    scored_candidates = []
+    for chunk in chunks:
+        candidate = _score_candidate(
             chunk,
             query_terms=query_terms,
             normalized_boost_tags=normalized_boost_tags,
@@ -80,8 +100,23 @@ def rerank_chunks(
             section_focus=section_focus or "",
             domain_profile=domain_profile,
         )
-        for chunk in chunks
-    ]
+        title_text = str(chunk.metadata.get("note_title", ""))
+        normalized_title = " ".join(_tokenize(title_text))
+        title_terms = set(_tokenize(title_text))
+
+        exact_title_match_boost = 0.0
+        if normalized_query and normalized_title and normalized_query in normalized_title:
+            exact_title_match_boost = 3.0
+
+        title_token_overlap_boost = 0.0
+        if query_terms and title_terms:
+            title_token_overlap_boost = (len(query_terms & title_terms) / len(query_terms)) * 1.5
+
+        candidate.component_scores["title_exact_match"] = exact_title_match_boost
+        candidate.component_scores["title_token_overlap_boost"] = title_token_overlap_boost
+        candidate.final_score += exact_title_match_boost + title_token_overlap_boost
+        scored_candidates.append(candidate)
+
     scored_candidates.sort(
         key=lambda candidate: (
             candidate.final_score,
@@ -89,18 +124,20 @@ def rerank_chunks(
         ),
         reverse=True,
     )
-    return (
-        [candidate.chunk for candidate in scored_candidates],
-        [
-            RetrievalScoreDebug(
-                note_title=str(candidate.chunk.metadata.get("note_title", "Untitled")),
-                source_path=str(candidate.chunk.metadata.get("source_path", "")),
-                chunk_index=int(candidate.chunk.metadata.get("chunk_index", 0) or 0),
-                final_score=round(candidate.final_score, 4),
-                component_scores={key: round(value, 4) for key, value in candidate.component_scores.items()},
-            )
-            for candidate in scored_candidates
-        ],
+    reranked_chunks = [candidate.chunk for candidate in scored_candidates]
+    reranking_details = [
+        RetrievalScoreDebug(
+            note_title=str(candidate.chunk.metadata.get("note_title", "Untitled")),
+            source_path=str(candidate.chunk.metadata.get("source_path", "")),
+            chunk_index=int(candidate.chunk.metadata.get("chunk_index", 0) or 0),
+            final_score=round(candidate.final_score, 4),
+            component_scores={key: round(value, 4) for key, value in candidate.component_scores.items()},
+        )
+        for candidate in scored_candidates
+    ]
+    return _RerankResult(
+        reranked_chunks,
+        reranking_details,
     )
 
 
