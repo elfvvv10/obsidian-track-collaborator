@@ -194,6 +194,8 @@ def _build_excluded_paths(config: AppConfig) -> list:
         (config.research_sessions_path, config.index_research_sessions),
         (config.webpage_ingestion_path, config.index_webpage_imports),
         (config.youtube_ingestion_path, config.index_youtube_imports),
+        (config.pdf_ingestion_path, config.index_pdf_imports),
+        (config.docx_ingestion_path, config.index_docx_imports),
     ]
     for path, include_enabled in candidate_paths:
         if include_enabled:
@@ -214,7 +216,13 @@ def _classify_note_metadata(
     explicit_scope = str(frontmatter.get("content_scope", "")).strip().lower()
     explicit_status = str(frontmatter.get("status", "")).strip().lower()
     source_type = str(frontmatter.get("source_type", "")).strip().lower()
-    is_imported_source = source_type in {"webpage_import", "youtube_import", "youtube_video"}
+    is_imported_source = source_type in {
+        "webpage_import",
+        "youtube_import",
+        "youtube_video",
+        "pdf_import",
+        "docx_import",
+    }
     is_generated_source = source_type in {"saved_answer", "research_session"}
     import_genre = str(frontmatter.get("genre", "")).strip()
 
@@ -226,6 +234,8 @@ def _classify_note_metadata(
     imported_prefixes = {
         _relative_prefix(config.webpage_ingestion_path, config),
         _relative_prefix(config.youtube_ingestion_path, config),
+        _relative_prefix(config.pdf_ingestion_path, config),
+        _relative_prefix(config.docx_ingestion_path, config),
     } - {""}
 
     if explicit_scope in {"knowledge", "extended"}:

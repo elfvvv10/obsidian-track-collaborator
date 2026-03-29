@@ -71,6 +71,8 @@ WEB_SEARCH_TIMEOUT_SECONDS=10
 
 WEBPAGE_INGESTION_FOLDER=Imports/Web Imports
 YOUTUBE_INGESTION_FOLDER=Imports/YouTube Imports
+PDF_INGESTION_FOLDER=Imports/PDF Imports
+DOCX_INGESTION_FOLDER=Imports/Word Imports
 AUTO_INDEX_AFTER_INGESTION=true
 
 YOUTUBE_WHISPER_MODEL=small
@@ -120,6 +122,8 @@ At runtime, the CLI also supports:
 
 - `INDEX_WEBPAGE_IMPORTS`: include webpage imports in indexing
 - `INDEX_YOUTUBE_IMPORTS`: include video imports in indexing
+- `INDEX_PDF_IMPORTS`: include PDF imports in indexing
+- `INDEX_DOCX_IMPORTS`: include DOCX imports in indexing
 - `AUTO_INDEX_AFTER_INGESTION`: trigger incremental indexing after import
 - `YOUTUBE_INDEX_MODE=sections`: index video imports by semantic sections
 

@@ -126,6 +126,18 @@ Ingest a YouTube video:
 python main.py ingest-youtube "https://www.youtube.com/watch?v=example" --title "Example Video" --index-now
 ```
 
+Ingest a PDF:
+
+```bash
+python main.py ingest-pdf "/path/to/notes.pdf" --title "PDF Notes" --index-now
+```
+
+Ingest a DOCX:
+
+```bash
+python main.py ingest-docx "/path/to/notes.docx" --title "DOCX Notes" --index-now
+```
+
 ## Track Context
 
 Track Context is central to the project. YAML Track Context is stored under:
@@ -207,6 +219,13 @@ Saved notes can include:
 - active section focus and track-linked context metadata
 - reviewable Track Context update metadata
 - clearly labeled sources
+
+Imported source notes can also be saved under configured vault folders such as:
+
+- `Imports/Web Imports/`
+- `Imports/YouTube Imports/`
+- `Imports/PDF Imports/`
+- `Imports/Word Imports/`
 
 ## Project Boundaries
 

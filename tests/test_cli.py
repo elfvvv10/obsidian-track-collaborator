@@ -384,6 +384,78 @@ class CLITests(unittest.TestCase):
             self.assertIn("Ingestion Complete", output)
             self.assertIn("Example Video", output)
 
+    def test_main_ingest_pdf_command_dispatches_to_ingestion_flow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            config = make_config(root)
+            pdf_path = root / "source.pdf"
+            response = IngestionResponse(
+                source=str(pdf_path),
+                source_type="pdf",
+                saved_path=root / "vault" / "ingested_pdfs" / "note.md",
+                title="Example PDF",
+                index_triggered=True,
+            )
+
+            with patch("main.load_config", return_value=config), patch(
+                "main.IngestionService.ingest_pdf",
+                return_value=response,
+            ) as ingest_mock, patch(
+                "sys.argv",
+                ["main.py", "ingest-pdf", str(pdf_path), "--title", "Example PDF", "--genre", "Progressive House", "--index-now"],
+            ):
+                buffer = io.StringIO()
+                with redirect_stdout(buffer):
+                    exit_code = main.main()
+
+            self.assertEqual(exit_code, 0)
+            request = ingest_mock.call_args.args[0]
+            self.assertEqual(request.source, str(pdf_path))
+            self.assertEqual(request.title_override, "Example PDF")
+            self.assertEqual(request.import_genre, "Progressive House")
+            self.assertTrue(request.index_now)
+            output = buffer.getvalue()
+            self.assertIn("Ingestion Complete", output)
+            self.assertIn("Example PDF", output)
+
+    def test_main_ingest_docx_command_dispatches_to_ingestion_flow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            config = make_config(root)
+            docx_path = root / "source.docx"
+            response = IngestionResponse(
+                source=str(docx_path),
+                source_type="docx",
+                saved_path=root / "vault" / "ingested_docx" / "note.md",
+                title="Example DOCX",
+                index_triggered=True,
+            )
+
+            with patch("main.load_config", return_value=config), patch(
+                "main.IngestionService.ingest_docx",
+                return_value=response,
+            ) as ingest_mock, patch(
+                "sys.argv",
+                ["main.py", "ingest-docx", str(docx_path), "--title", "Example DOCX", "--genre", "Progressive House", "--index-now"],
+            ):
+                buffer = io.StringIO()
+                with redirect_stdout(buffer):
+                    exit_code = main.main()
+
+            self.assertEqual(exit_code, 0)
+            request = ingest_mock.call_args.args[0]
+            self.assertEqual(request.source, str(docx_path))
+            self.assertEqual(request.title_override, "Example DOCX")
+            self.assertEqual(request.import_genre, "Progressive House")
+            self.assertTrue(request.index_now)
+            output = buffer.getvalue()
+            self.assertIn("Ingestion Complete", output)
+            self.assertIn("Example DOCX", output)
+
     def test_main_research_command_dispatches_to_research_flow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

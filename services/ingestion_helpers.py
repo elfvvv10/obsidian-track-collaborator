@@ -12,7 +12,8 @@ def build_ingested_markdown_note(
     *,
     title: str,
     source_type: str,
-    source_url: str,
+    source_url: str = "",
+    source_path: str = "",
     content_heading: str,
     content: str,
     status: str = "imported",
@@ -30,17 +31,21 @@ def build_ingested_markdown_note(
         f"indexed: {'true' if indexed else 'false'}",
         'created_by: "obsidian_track_collaborator"',
         f'created_at: "{timestamp}"',
-        f'source_url: "{escape_frontmatter(source_url)}"',
         f'ingested_at: "{timestamp}"',
     ]
+    if source_url:
+        frontmatter_lines.append(f'source_url: "{escape_frontmatter(source_url)}"')
+    if source_path:
+        frontmatter_lines.append(f'source_path: "{escape_frontmatter(source_path)}"')
     for key, value in (extra_frontmatter or {}).items():
         frontmatter_lines.append(f'{key}: "{escape_frontmatter(value)}"')
     frontmatter_lines.append("---")
 
-    metadata_lines = [
-        f"**Source URL:** {source_url}",
-        f"**Ingested At:** {timestamp}",
-    ]
+    metadata_lines = [f"**Ingested At:** {timestamp}"]
+    if source_url:
+        metadata_lines.insert(0, f"**Source URL:** {source_url}")
+    if source_path:
+        metadata_lines.insert(0, f"**Source File:** {source_path}")
     for label, value in (extra_metadata_lines or []):
         metadata_lines.append(f"**{label}:** {value}")
 
@@ -90,3 +95,10 @@ def fallback_title_from_url(url: str, *, default_host: str = "external-content")
     if path:
         return f"{host} {path}".strip()
     return host
+
+
+def fallback_title_from_path(path: str | Path, *, default_name: str = "document") -> str:
+    """Generate a readable fallback title from a local file path."""
+    resolved = Path(path)
+    stem = resolved.stem.strip()
+    return stem or default_name

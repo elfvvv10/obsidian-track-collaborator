@@ -100,6 +100,23 @@ def main() -> int:
                 args.url,
                 title=args.title,
                 index_now=args.index_now,
+                genre=args.genre,
+            )
+        elif args.command == "ingest-pdf":
+            run_ingest_pdf(
+                config,
+                args.file_path,
+                title=args.title,
+                index_now=args.index_now,
+                genre=args.genre,
+            )
+        elif args.command == "ingest-docx":
+            run_ingest_docx(
+                config,
+                args.file_path,
+                title=args.title,
+                index_now=args.index_now,
+                genre=args.genre,
             )
         else:
             parser.print_help()
@@ -120,6 +137,8 @@ def build_parser() -> argparse.ArgumentParser:
     rebuild_parser = subparsers.add_parser("rebuild", help="Clear and rebuild the vector index")
     ingest_parser = subparsers.add_parser("ingest-webpage", help="Import a webpage into the vault")
     ingest_youtube_parser = subparsers.add_parser("ingest-youtube", help="Import a YouTube video knowledge note into the vault")
+    ingest_pdf_parser = subparsers.add_parser("ingest-pdf", help="Import a PDF document into the vault")
+    ingest_docx_parser = subparsers.add_parser("ingest-docx", help="Import a DOCX document into the vault")
 
     index_parser = subparsers.choices["index"]
     _add_index_overrides(index_parser)
@@ -139,6 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ingest_parser.add_argument("url", help="Webpage URL to ingest into the vault")
     ingest_parser.add_argument("--title", help="Optional title override for the saved note")
+    ingest_parser.add_argument("--genre", help="Optional genre folder for this import")
     ingest_parser.add_argument(
         "--index-now",
         action="store_true",
@@ -146,7 +166,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ingest_youtube_parser.add_argument("url", help="YouTube URL to ingest into the vault")
     ingest_youtube_parser.add_argument("--title", help="Optional title override for the saved note")
+    ingest_youtube_parser.add_argument("--genre", help="Optional genre folder for this import")
     ingest_youtube_parser.add_argument(
+        "--index-now",
+        action="store_true",
+        help="Run incremental indexing immediately after saving the ingested note.",
+    )
+    ingest_pdf_parser.add_argument("file_path", help="Local PDF file to ingest into the vault")
+    ingest_pdf_parser.add_argument("--title", help="Optional title override for the saved note")
+    ingest_pdf_parser.add_argument("--genre", help="Optional genre folder for this import")
+    ingest_pdf_parser.add_argument(
+        "--index-now",
+        action="store_true",
+        help="Run incremental indexing immediately after saving the ingested note.",
+    )
+    ingest_docx_parser.add_argument("file_path", help="Local DOCX file to ingest into the vault")
+    ingest_docx_parser.add_argument("--title", help="Optional title override for the saved note")
+    ingest_docx_parser.add_argument("--genre", help="Optional genre folder for this import")
+    ingest_docx_parser.add_argument(
         "--index-now",
         action="store_true",
         help="Run incremental indexing immediately after saving the ingested note.",
@@ -366,6 +403,7 @@ def run_ingest_webpage(
     *,
     title: str | None = None,
     index_now: bool = False,
+    genre: str | None = None,
 ) -> None:
     """Import a webpage into the vault and optionally index it."""
     response = IngestionService(config).ingest_webpage(
@@ -373,6 +411,7 @@ def run_ingest_webpage(
             source=url,
             title_override=title,
             index_now=True if index_now else None,
+            import_genre=genre,
         )
     )
 
@@ -391,6 +430,7 @@ def run_ingest_youtube(
     *,
     title: str | None = None,
     index_now: bool = False,
+    genre: str | None = None,
 ) -> None:
     """Import a YouTube transcript into the vault and optionally index it."""
     response = IngestionService(config).ingest_youtube(
@@ -398,6 +438,61 @@ def run_ingest_youtube(
             source=url,
             title_override=title,
             index_now=True if index_now else None,
+            import_genre=genre,
+        )
+    )
+
+    print("\nIngestion Complete\n------------------")
+    print(f"Title: {response.title}")
+    print(f"Saved Path: {response.saved_path}")
+    print(f"Source Type: {response.source_type}")
+    print(f"Indexed Now: {'yes' if response.index_triggered else 'no'}")
+    for warning in response.warnings:
+        print(f"\nWarning: {warning}")
+
+
+def run_ingest_pdf(
+    config: AppConfig,
+    file_path: str,
+    *,
+    title: str | None = None,
+    index_now: bool = False,
+    genre: str | None = None,
+) -> None:
+    """Import a PDF into the vault and optionally index it."""
+    response = IngestionService(config).ingest_pdf(
+        IngestionRequest(
+            source=file_path,
+            title_override=title,
+            index_now=True if index_now else None,
+            import_genre=genre,
+        )
+    )
+
+    print("\nIngestion Complete\n------------------")
+    print(f"Title: {response.title}")
+    print(f"Saved Path: {response.saved_path}")
+    print(f"Source Type: {response.source_type}")
+    print(f"Indexed Now: {'yes' if response.index_triggered else 'no'}")
+    for warning in response.warnings:
+        print(f"\nWarning: {warning}")
+
+
+def run_ingest_docx(
+    config: AppConfig,
+    file_path: str,
+    *,
+    title: str | None = None,
+    index_now: bool = False,
+    genre: str | None = None,
+) -> None:
+    """Import a DOCX file into the vault and optionally index it."""
+    response = IngestionService(config).ingest_docx(
+        IngestionRequest(
+            source=file_path,
+            title_override=title,
+            index_now=True if index_now else None,
+            import_genre=genre,
         )
     )
 

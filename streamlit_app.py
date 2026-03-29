@@ -1271,6 +1271,7 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
     )
 
     webpage_col, youtube_col = st.columns(2)
+    pdf_col, docx_col = st.columns(2)
     import_genre_service = ImportGenreService(ingestion_service.config)
     available_import_genres = import_genre_service.available_genres()
 
@@ -1377,6 +1378,110 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
                         )
                     st.session_state["last_ingestion_response"] = response
                     st.success(f"Saved YouTube note to {response.saved_path}")
+                except Exception as exc:
+                    st.session_state["last_ingestion_response"] = None
+                    st.error(str(exc))
+
+    with pdf_col:
+        st.subheader("Import a PDF")
+        st.caption("Saved into the configured PDF-imports folder as a Markdown note for later retrieval.")
+        with st.form("ingest_pdf_form", clear_on_submit=False, enter_to_submit=False):
+            st.text_input(
+                "PDF file path",
+                placeholder="/path/to/document.pdf",
+                key="pdf_path",
+            )
+            st.text_input(
+                "Optional PDF note title",
+                key="pdf_title",
+                help="Override the saved note title and filename slug.",
+            )
+            st.selectbox(
+                "Genre",
+                options=available_import_genres,
+                key="pdf_genre",
+                help="Choose the genre folder for this import. Use Generic for content that is not genre-specific.",
+            )
+            st.text_input(
+                "Add new genre",
+                key="pdf_new_genre",
+                help="Optional. If filled, this overrides the dropdown and creates a new genre folder.",
+            )
+            st.checkbox(
+                "Index PDF immediately",
+                help="Run the existing incremental index after creating the note.",
+                key="pdf_index_now",
+            )
+            pdf_submit = st.form_submit_button("Ingest PDF", type="primary", use_container_width=True)
+
+        if pdf_submit:
+            file_path = st.session_state["pdf_path"].strip()
+            if not file_path:
+                st.warning("Enter a PDF file path before starting ingestion.")
+            else:
+                try:
+                    response = ingestion_service.ingest_pdf(
+                        IngestionRequest(
+                            source=file_path,
+                            title_override=st.session_state["pdf_title"].strip() or None,
+                            index_now=st.session_state["pdf_index_now"],
+                            import_genre=_selected_import_genre("pdf"),
+                        )
+                    )
+                    st.session_state["last_ingestion_response"] = response
+                    st.success(f"Saved PDF note to {response.saved_path}")
+                except Exception as exc:
+                    st.session_state["last_ingestion_response"] = None
+                    st.error(str(exc))
+
+    with docx_col:
+        st.subheader("Import a DOCX")
+        st.caption("Saved into the configured Word-imports folder as a Markdown note for later retrieval.")
+        with st.form("ingest_docx_form", clear_on_submit=False, enter_to_submit=False):
+            st.text_input(
+                "DOCX file path",
+                placeholder="/path/to/document.docx",
+                key="docx_path",
+            )
+            st.text_input(
+                "Optional DOCX note title",
+                key="docx_title",
+                help="Override the saved note title and filename slug.",
+            )
+            st.selectbox(
+                "Genre",
+                options=available_import_genres,
+                key="docx_genre",
+                help="Choose the genre folder for this import. Use Generic for content that is not genre-specific.",
+            )
+            st.text_input(
+                "Add new genre",
+                key="docx_new_genre",
+                help="Optional. If filled, this overrides the dropdown and creates a new genre folder.",
+            )
+            st.checkbox(
+                "Index DOCX immediately",
+                help="Run the existing incremental index after creating the note.",
+                key="docx_index_now",
+            )
+            docx_submit = st.form_submit_button("Ingest DOCX", type="primary", use_container_width=True)
+
+        if docx_submit:
+            file_path = st.session_state["docx_path"].strip()
+            if not file_path:
+                st.warning("Enter a DOCX file path before starting ingestion.")
+            else:
+                try:
+                    response = ingestion_service.ingest_docx(
+                        IngestionRequest(
+                            source=file_path,
+                            title_override=st.session_state["docx_title"].strip() or None,
+                            index_now=st.session_state["docx_index_now"],
+                            import_genre=_selected_import_genre("docx"),
+                        )
+                    )
+                    st.session_state["last_ingestion_response"] = response
+                    st.success(f"Saved DOCX note to {response.saved_path}")
                 except Exception as exc:
                     st.session_state["last_ingestion_response"] = None
                     st.error(str(exc))

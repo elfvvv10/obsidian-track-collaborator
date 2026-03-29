@@ -43,12 +43,16 @@ class AppConfig:
     index_research_sessions: bool = False
     index_webpage_imports: bool = False
     index_youtube_imports: bool = False
+    index_pdf_imports: bool = False
+    index_docx_imports: bool = False
     web_search_provider: str = "wikipedia"
     web_search_api_url: str = ""
     web_search_max_results: int = 3
     web_search_timeout_seconds: int = 10
     webpage_ingestion_folder: str = "ingested_webpages"
     youtube_ingestion_folder: str = "ingested_youtube"
+    pdf_ingestion_folder: str = "ingested_pdfs"
+    docx_ingestion_folder: str = "ingested_docx"
     auto_index_after_ingestion: bool = False
     youtube_whisper_model: str = "small"
     youtube_max_duration_seconds: int = 7200
@@ -89,6 +93,16 @@ class AppConfig:
     def youtube_ingestion_path(self) -> Path:
         """Return the YouTube-import folder path inside the vault."""
         return self.obsidian_vault_path / self.youtube_ingestion_folder
+
+    @property
+    def pdf_ingestion_path(self) -> Path:
+        """Return the PDF-import folder path inside the vault."""
+        return self.obsidian_vault_path / self.pdf_ingestion_folder
+
+    @property
+    def docx_ingestion_path(self) -> Path:
+        """Return the DOCX-import folder path inside the vault."""
+        return self.obsidian_vault_path / self.docx_ingestion_folder
 
 
 def load_config() -> AppConfig:
@@ -134,6 +148,8 @@ def load_config() -> AppConfig:
     index_research_sessions = _bool_env("INDEX_RESEARCH_SESSIONS", default=False)
     index_webpage_imports = _bool_env("INDEX_WEBPAGE_IMPORTS", default=False)
     index_youtube_imports = _bool_env("INDEX_YOUTUBE_IMPORTS", default=False)
+    index_pdf_imports = _bool_env("INDEX_PDF_IMPORTS", default=False)
+    index_docx_imports = _bool_env("INDEX_DOCX_IMPORTS", default=False)
     web_search_provider = _choice_env(
         "WEB_SEARCH_PROVIDER",
         default="wikipedia",
@@ -144,6 +160,8 @@ def load_config() -> AppConfig:
     web_search_timeout_seconds = _required_int_env("WEB_SEARCH_TIMEOUT_SECONDS", default=10, minimum=1)
     webpage_ingestion_folder = _relative_folder_env("WEBPAGE_INGESTION_FOLDER", default="ingested_webpages")
     youtube_ingestion_folder = _relative_folder_env("YOUTUBE_INGESTION_FOLDER", default="ingested_youtube")
+    pdf_ingestion_folder = _relative_folder_env("PDF_INGESTION_FOLDER", default="Imports/PDF Imports")
+    docx_ingestion_folder = _relative_folder_env("DOCX_INGESTION_FOLDER", default="Imports/Word Imports")
     auto_index_after_ingestion = _bool_env("AUTO_INDEX_AFTER_INGESTION", default=False)
     youtube_whisper_model = os.getenv("YOUTUBE_WHISPER_MODEL", "small").strip() or "small"
     youtube_max_duration_seconds = _required_int_env("YOUTUBE_MAX_DURATION_SECONDS", default=7200, minimum=60)
@@ -208,12 +226,16 @@ def load_config() -> AppConfig:
         index_research_sessions=index_research_sessions,
         index_webpage_imports=index_webpage_imports,
         index_youtube_imports=index_youtube_imports,
+        index_pdf_imports=index_pdf_imports,
+        index_docx_imports=index_docx_imports,
         web_search_provider=web_search_provider,
         web_search_api_url=web_search_api_url,
         web_search_max_results=web_search_max_results,
         web_search_timeout_seconds=web_search_timeout_seconds,
         webpage_ingestion_folder=webpage_ingestion_folder,
         youtube_ingestion_folder=youtube_ingestion_folder,
+        pdf_ingestion_folder=pdf_ingestion_folder,
+        docx_ingestion_folder=docx_ingestion_folder,
         auto_index_after_ingestion=auto_index_after_ingestion,
         youtube_whisper_model=youtube_whisper_model,
         youtube_max_duration_seconds=youtube_max_duration_seconds,

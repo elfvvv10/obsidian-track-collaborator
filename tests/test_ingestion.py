@@ -1,4 +1,4 @@
-"""Tests for external webpage ingestion."""
+"""Tests for external webpage and document ingestion."""
 
 from __future__ import annotations
 
@@ -6,12 +6,15 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from zipfile import ZipFile
 
 import requests
 
 from config import AppConfig
+from services.docx_ingestion_service import DocxIngestionService
 from services.ingestion_service import IngestionService
 from services.models import IngestionRequest, IngestionResponse, VideoTranscriptSegment
+from services.pdf_ingestion_service import PdfIngestionService
 from services.video_ingestion_service import VideoIngestionService, _get_transcript_items
 from services.webpage_ingestion_service import WebpageIngestionService
 from services.youtube_ingestion_service import YouTubeIngestionService
@@ -27,6 +30,78 @@ def make_config(root: Path) -> AppConfig:
         ollama_embedding_model="nomic-embed-text",
         top_k_results=3,
     )
+
+
+def write_minimal_pdf(path: Path, *, title: str = "", lines: list[str] | None = None) -> None:
+    text_lines = lines or ["PDF line one.", "PDF line two."]
+    title_fragment = f"/Title ({title})\n" if title else ""
+    content_ops = " ".join(f"({line}) Tj" for line in text_lines)
+    path.write_text(
+        "%PDF-1.4\n"
+        "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+        "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
+        "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 4 0 R /Resources << >> >> endobj\n"
+        f"4 0 obj << /Length {len(content_ops) + 32} >> stream\nBT /F1 12 Tf 72 220 Td {content_ops} ET\nendstream endobj\n"
+        f"5 0 obj << {title_fragment}/Producer (Test) >> endobj\n"
+        "trailer << /Root 1 0 R /Info 5 0 R >>\n%%EOF\n",
+        encoding="latin-1",
+    )
+
+
+def write_minimal_docx(path: Path, *, title: str = "", paragraphs: list[str] | None = None) -> None:
+    doc_paragraphs = paragraphs or ["DOCX line one.", "DOCX line two."]
+    body = "".join(
+        f"<w:p><w:r><w:t>{paragraph}</w:t></w:r></w:p>"
+        for paragraph in doc_paragraphs
+    )
+    core_title = f"<dc:title>{title}</dc:title>" if title else ""
+    with ZipFile(path, "w") as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+                '<Default Extension="xml" ContentType="application/xml"/>'
+                '<Override PartName="/word/document.xml" '
+                'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+                '<Override PartName="/docProps/core.xml" '
+                'ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+                "</Types>"
+            ),
+        )
+        archive.writestr(
+            "_rels/.rels",
+            (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" '
+                'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+                'Target="word/document.xml"/>'
+                '<Relationship Id="rId2" '
+                'Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" '
+                'Target="docProps/core.xml"/>'
+                "</Relationships>"
+            ),
+        )
+        archive.writestr(
+            "word/document.xml",
+            (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                f"<w:body>{body}</w:body></w:document>"
+            ),
+        )
+        archive.writestr(
+            "docProps/core.xml",
+            (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<cp:coreProperties '
+                'xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
+                'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+                f"{core_title}</cp:coreProperties>"
+            ),
+        )
 
 
 class WebpageIngestionTests(unittest.TestCase):
@@ -316,6 +391,192 @@ class WebpageIngestionTests(unittest.TestCase):
                 index_service_cls=StubIndexService,
             ).ingest_youtube(
                 IngestionRequest(source="https://www.youtube.com/watch?v=abc123xyz00", index_now=True)
+            )
+
+            self.assertTrue(response.index_triggered)
+            self.assertEqual(StubIndexService.calls, [False])
+
+
+class PdfIngestionTests(unittest.TestCase):
+    def test_pdf_ingestion_saves_markdown_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            config = make_config(root)
+            config.obsidian_vault_path.mkdir()
+            config.obsidian_output_path.mkdir()
+            pdf_path = root / "source.pdf"
+            write_minimal_pdf(pdf_path, title="Synth Notes", lines=["Bass layer idea.", "Drop contrast tip."])
+
+            response = PdfIngestionService(config).ingest(
+                IngestionRequest(source=str(pdf_path), import_genre="progressive house")
+            )
+
+            self.assertEqual(response.source_type, "pdf")
+            self.assertEqual(response.title, "Synth Notes")
+            self.assertTrue(response.saved_path.exists())
+            self.assertIn(str(config.pdf_ingestion_path / "Progressive House"), str(response.saved_path))
+            content = response.saved_path.read_text(encoding="utf-8")
+            self.assertIn('source_type: "pdf_import"', content)
+            self.assertIn('source_path: "', content)
+            self.assertIn("source.pdf", content)
+            self.assertIn("## Extracted Content", content)
+            self.assertIn("Bass layer idea.", content)
+
+    def test_pdf_ingestion_uses_title_override_and_filename_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            config = make_config(root)
+            config.obsidian_vault_path.mkdir()
+            config.obsidian_output_path.mkdir()
+            pdf_path = root / "rough-arrangement.pdf"
+            write_minimal_pdf(pdf_path, lines=["Arrangement note."])
+
+            overridden = PdfIngestionService(config).ingest(
+                IngestionRequest(source=str(pdf_path), title_override="Custom PDF Note")
+            )
+            fallback = PdfIngestionService(config).ingest(
+                IngestionRequest(source=str(pdf_path))
+            )
+
+            self.assertEqual(overridden.title, "Custom PDF Note")
+            self.assertEqual(fallback.title, "rough-arrangement")
+
+    def test_pdf_ingestion_errors_on_missing_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            config = make_config(root)
+            config.obsidian_vault_path.mkdir()
+            config.obsidian_output_path.mkdir()
+
+            with self.assertRaisesRegex(ValueError, "existing local file"):
+                PdfIngestionService(config).ingest(IngestionRequest(source=str(root / "missing.pdf")))
+
+    def test_ingestion_service_can_trigger_incremental_index_for_pdf(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            config = make_config(root)
+            config.obsidian_vault_path.mkdir()
+            config.obsidian_output_path.mkdir()
+
+            class StubPdfService:
+                def __init__(self, config: AppConfig) -> None:
+                    self.config = config
+
+                def ingest(self, request: IngestionRequest) -> IngestionResponse:
+                    return IngestionResponse(
+                        source=request.source,
+                        source_type="pdf",
+                        saved_path=self.config.obsidian_vault_path / "ingested_pdfs" / "note.md",
+                        title="Imported PDF",
+                    )
+
+            class StubIndexService:
+                calls: list[bool] = []
+
+                def __init__(self, config: AppConfig) -> None:
+                    self.config = config
+
+                def index(self, *, reset_store: bool) -> None:
+                    self.calls.append(reset_store)
+
+            response = IngestionService(
+                config,
+                pdf_service_cls=StubPdfService,
+                index_service_cls=StubIndexService,
+            ).ingest_pdf(
+                IngestionRequest(source=str(root / "source.pdf"), index_now=True)
+            )
+
+            self.assertTrue(response.index_triggered)
+            self.assertEqual(StubIndexService.calls, [False])
+
+
+class DocxIngestionTests(unittest.TestCase):
+    def test_docx_ingestion_saves_markdown_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            config = make_config(root)
+            config.obsidian_vault_path.mkdir()
+            config.obsidian_output_path.mkdir()
+            docx_path = root / "sound-design.docx"
+            write_minimal_docx(docx_path, title="Sound Design Notes", paragraphs=["First paragraph.", "Second paragraph."])
+
+            response = DocxIngestionService(config).ingest(
+                IngestionRequest(source=str(docx_path), import_genre="Organic House")
+            )
+
+            self.assertEqual(response.source_type, "docx")
+            self.assertEqual(response.title, "Sound Design Notes")
+            self.assertTrue(response.saved_path.exists())
+            self.assertIn(str(config.docx_ingestion_path / "Organic House"), str(response.saved_path))
+            content = response.saved_path.read_text(encoding="utf-8")
+            self.assertIn('source_type: "docx_import"', content)
+            self.assertIn("First paragraph.", content)
+            self.assertIn("Second paragraph.", content)
+
+    def test_docx_ingestion_uses_title_override_and_filename_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            config = make_config(root)
+            config.obsidian_vault_path.mkdir()
+            config.obsidian_output_path.mkdir()
+            docx_path = root / "drop-notes.docx"
+            write_minimal_docx(docx_path, paragraphs=["Drop note."])
+
+            overridden = DocxIngestionService(config).ingest(
+                IngestionRequest(source=str(docx_path), title_override="Custom DOCX Note")
+            )
+            fallback = DocxIngestionService(config).ingest(IngestionRequest(source=str(docx_path)))
+
+            self.assertEqual(overridden.title, "Custom DOCX Note")
+            self.assertEqual(fallback.title, "drop-notes")
+
+    def test_docx_ingestion_errors_on_invalid_extension(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            config = make_config(root)
+            config.obsidian_vault_path.mkdir()
+            config.obsidian_output_path.mkdir()
+            invalid_path = root / "legacy.doc"
+            invalid_path.write_text("legacy", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "local .docx files"):
+                DocxIngestionService(config).ingest(IngestionRequest(source=str(invalid_path)))
+
+    def test_ingestion_service_can_trigger_incremental_index_for_docx(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            config = make_config(root)
+            config.obsidian_vault_path.mkdir()
+            config.obsidian_output_path.mkdir()
+
+            class StubDocxService:
+                def __init__(self, config: AppConfig) -> None:
+                    self.config = config
+
+                def ingest(self, request: IngestionRequest) -> IngestionResponse:
+                    return IngestionResponse(
+                        source=request.source,
+                        source_type="docx",
+                        saved_path=self.config.obsidian_vault_path / "ingested_docx" / "note.md",
+                        title="Imported DOCX",
+                    )
+
+            class StubIndexService:
+                calls: list[bool] = []
+
+                def __init__(self, config: AppConfig) -> None:
+                    self.config = config
+
+                def index(self, *, reset_store: bool) -> None:
+                    self.calls.append(reset_store)
+
+            response = IngestionService(
+                config,
+                docx_service_cls=StubDocxService,
+                index_service_cls=StubIndexService,
+            ).ingest_docx(
+                IngestionRequest(source=str(root / "source.docx"), index_now=True)
             )
 
             self.assertTrue(response.index_triggered)
