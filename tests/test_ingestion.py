@@ -29,6 +29,7 @@ def make_config(root: Path) -> AppConfig:
         ollama_chat_model="hermes3",
         ollama_embedding_model="nomic-embed-text",
         top_k_results=3,
+        curated_knowledge_folder="Knowledge",
     )
 
 
@@ -111,6 +112,8 @@ class WebpageIngestionTests(unittest.TestCase):
             config = make_config(root)
             config.obsidian_vault_path.mkdir()
             config.obsidian_output_path.mkdir()
+            (config.curated_knowledge_path / "References").mkdir(parents=True)
+            (config.curated_knowledge_path / "Arrangement").mkdir(parents=True)
 
             class StubResponse:
                 headers = {"content-type": "text/html; charset=utf-8"}
@@ -132,7 +135,11 @@ class WebpageIngestionTests(unittest.TestCase):
 
             with patch("services.webpage_ingestion_service.requests.get", return_value=StubResponse()):
                 response = WebpageIngestionService(config).ingest(
-                    IngestionRequest(source="https://example.com/article", import_genre="progressive house")
+                    IngestionRequest(
+                        source="https://example.com/article",
+                        import_genre="progressive house",
+                        knowledge_category="arrangement",
+                    )
                 )
 
             self.assertEqual(response.source_type, "webpage")
@@ -149,10 +156,13 @@ class WebpageIngestionTests(unittest.TestCase):
             self.assertIn('created_at: "', content)
             self.assertIn('source_url: "https://example.com/article"', content)
             self.assertIn('genre: "Progressive House"', content)
+            self.assertIn('knowledge_category: "Arrangement"', content)
             self.assertIn("**Genre:** Progressive House", content)
+            self.assertIn("**Knowledge Category:** Arrangement", content)
             self.assertIn("## Extracted Content", content)
             self.assertIn("This is the main content.", content)
             self.assertIn("# Test Article", content)
+            self.assertEqual(response.knowledge_category, "Arrangement")
 
     def test_webpage_ingestion_handles_fetch_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -191,6 +201,10 @@ class WebpageIngestionTests(unittest.TestCase):
 
             self.assertIn(str(config.webpage_ingestion_path / "Generic"), str(response.saved_path))
             self.assertEqual(response.import_genre, "Generic")
+            self.assertIsNone(response.knowledge_category)
+            content = response.saved_path.read_text(encoding="utf-8")
+            self.assertNotIn("knowledge_category:", content)
+            self.assertNotIn("**Knowledge Category:**", content)
 
     def test_webpage_ingestion_uses_title_override_and_collision_suffix(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -264,6 +278,7 @@ class WebpageIngestionTests(unittest.TestCase):
             config = make_config(root)
             config.obsidian_vault_path.mkdir()
             config.obsidian_output_path.mkdir()
+            (config.curated_knowledge_path / "References").mkdir(parents=True)
 
             with patch.object(
                 VideoIngestionService,
@@ -292,6 +307,7 @@ class WebpageIngestionTests(unittest.TestCase):
                     IngestionRequest(
                         source="https://www.youtube.com/watch?v=abc123xyz00",
                         import_genre="New Groove",
+                        knowledge_category="references",
                     )
                 )
 
@@ -308,12 +324,15 @@ class WebpageIngestionTests(unittest.TestCase):
             self.assertIn('created_by: "obsidian_track_collaborator"', content)
             self.assertIn('video_id: "abc123xyz00"', content)
             self.assertIn('genre: "New Groove"', content)
+            self.assertIn('knowledge_category: "References"', content)
+            self.assertIn("- **Knowledge Category:** References", content)
             self.assertIn("## Sections", content)
             self.assertIn("First transcript line.", content)
             self.assertIn("# Video Knowledge Import", content)
             self.assertIn("Producer Lab", content)
             self.assertEqual(response.section_count, 1)
             self.assertEqual(response.transcript_chunk_count, 2)
+            self.assertEqual(response.knowledge_category, "References")
 
     def test_youtube_ingestion_handles_video_processing_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -404,11 +423,16 @@ class PdfIngestionTests(unittest.TestCase):
             config = make_config(root)
             config.obsidian_vault_path.mkdir()
             config.obsidian_output_path.mkdir()
+            (config.curated_knowledge_path / "Sound Design").mkdir(parents=True)
             pdf_path = root / "source.pdf"
             write_minimal_pdf(pdf_path, title="Synth Notes", lines=["Bass layer idea.", "Drop contrast tip."])
 
             response = PdfIngestionService(config).ingest(
-                IngestionRequest(source=str(pdf_path), import_genre="progressive house")
+                IngestionRequest(
+                    source=str(pdf_path),
+                    import_genre="progressive house",
+                    knowledge_category="sound design",
+                )
             )
 
             self.assertEqual(response.source_type, "pdf")
@@ -419,8 +443,11 @@ class PdfIngestionTests(unittest.TestCase):
             self.assertIn('source_type: "pdf_import"', content)
             self.assertIn('source_path: "', content)
             self.assertIn("source.pdf", content)
+            self.assertIn('knowledge_category: "Sound Design"', content)
+            self.assertIn("**Knowledge Category:** Sound Design", content)
             self.assertIn("## Extracted Content", content)
             self.assertIn("Bass layer idea.", content)
+            self.assertEqual(response.knowledge_category, "Sound Design")
 
     def test_pdf_ingestion_uses_title_override_and_filename_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -498,11 +525,16 @@ class DocxIngestionTests(unittest.TestCase):
             config = make_config(root)
             config.obsidian_vault_path.mkdir()
             config.obsidian_output_path.mkdir()
+            (config.curated_knowledge_path / "Arrangement").mkdir(parents=True)
             docx_path = root / "sound-design.docx"
             write_minimal_docx(docx_path, title="Sound Design Notes", paragraphs=["First paragraph.", "Second paragraph."])
 
             response = DocxIngestionService(config).ingest(
-                IngestionRequest(source=str(docx_path), import_genre="Organic House")
+                IngestionRequest(
+                    source=str(docx_path),
+                    import_genre="Organic House",
+                    knowledge_category="Arrangement",
+                )
             )
 
             self.assertEqual(response.source_type, "docx")
@@ -511,8 +543,11 @@ class DocxIngestionTests(unittest.TestCase):
             self.assertIn(str(config.docx_ingestion_path / "Organic House"), str(response.saved_path))
             content = response.saved_path.read_text(encoding="utf-8")
             self.assertIn('source_type: "docx_import"', content)
+            self.assertIn('knowledge_category: "Arrangement"', content)
+            self.assertIn("**Knowledge Category:** Arrangement", content)
             self.assertIn("First paragraph.", content)
             self.assertIn("Second paragraph.", content)
+            self.assertEqual(response.knowledge_category, "Arrangement")
 
     def test_docx_ingestion_uses_title_override_and_filename_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

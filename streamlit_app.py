@@ -17,6 +17,10 @@ from model_provider import (
 from services.ingestion_service import IngestionService
 from services.index_service import IndexService
 from services.import_genre_service import GENERIC_IMPORT_GENRE, ImportGenreService
+from services.knowledge_category_service import (
+    GENERIC_KNOWLEDGE_CATEGORY_LABEL,
+    KnowledgeCategoryService,
+)
 from services.music_workflow_service import MusicWorkflowService
 from services.models import (
     AnswerMode,
@@ -1274,6 +1278,12 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
     pdf_col, docx_col = st.columns(2)
     import_genre_service = ImportGenreService(ingestion_service.config)
     available_import_genres = import_genre_service.available_genres()
+    knowledge_category_service = KnowledgeCategoryService(ingestion_service.config)
+    available_knowledge_categories = knowledge_category_service.display_options()
+    refresh_col, _ = st.columns([1, 4])
+    with refresh_col:
+        if st.button("Refresh Knowledge categories", use_container_width=True):
+            st.rerun()
 
     with webpage_col:
         st.subheader("Import a Webpage")
@@ -1300,6 +1310,12 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
                 key="ingest_new_genre",
                 help="Optional. If filled, this overrides the dropdown and creates a new genre folder.",
             )
+            st.selectbox(
+                "Knowledge category",
+                options=available_knowledge_categories,
+                key="ingest_knowledge_category",
+                help="Map this import to an existing first-level folder under Knowledge. Leave blank for generic advice.",
+            )
             st.checkbox(
                 "Index immediately after save",
                 help="Run the existing incremental index after creating the note.",
@@ -1319,6 +1335,7 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
                             title_override=st.session_state["ingest_title"].strip() or None,
                             index_now=st.session_state["ingest_index_now"],
                             import_genre=_selected_import_genre("ingest"),
+                            knowledge_category=_selected_knowledge_category("ingest"),
                         )
                     )
                     st.session_state["last_ingestion_response"] = response
@@ -1352,6 +1369,12 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
                 key="youtube_new_genre",
                 help="Optional. If filled, this overrides the dropdown and creates a new genre folder.",
             )
+            st.selectbox(
+                "Knowledge category",
+                options=available_knowledge_categories,
+                key="youtube_knowledge_category",
+                help="Map this import to an existing first-level folder under Knowledge. Leave blank for generic advice.",
+            )
             st.checkbox(
                 "Index YouTube note immediately",
                 help="Run the existing incremental index after creating the note.",
@@ -1374,6 +1397,7 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
                                 title_override=st.session_state["youtube_title"].strip() or None,
                                 index_now=st.session_state["youtube_index_now"],
                                 import_genre=_selected_import_genre("youtube"),
+                                knowledge_category=_selected_knowledge_category("youtube"),
                             )
                         )
                     st.session_state["last_ingestion_response"] = response
@@ -1407,6 +1431,12 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
                 key="pdf_new_genre",
                 help="Optional. If filled, this overrides the dropdown and creates a new genre folder.",
             )
+            st.selectbox(
+                "Knowledge category",
+                options=available_knowledge_categories,
+                key="pdf_knowledge_category",
+                help="Map this import to an existing first-level folder under Knowledge. Leave blank for generic advice.",
+            )
             st.checkbox(
                 "Index PDF immediately",
                 help="Run the existing incremental index after creating the note.",
@@ -1426,6 +1456,7 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
                             title_override=st.session_state["pdf_title"].strip() or None,
                             index_now=st.session_state["pdf_index_now"],
                             import_genre=_selected_import_genre("pdf"),
+                            knowledge_category=_selected_knowledge_category("pdf"),
                         )
                     )
                     st.session_state["last_ingestion_response"] = response
@@ -1459,6 +1490,12 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
                 key="docx_new_genre",
                 help="Optional. If filled, this overrides the dropdown and creates a new genre folder.",
             )
+            st.selectbox(
+                "Knowledge category",
+                options=available_knowledge_categories,
+                key="docx_knowledge_category",
+                help="Map this import to an existing first-level folder under Knowledge. Leave blank for generic advice.",
+            )
             st.checkbox(
                 "Index DOCX immediately",
                 help="Run the existing incremental index after creating the note.",
@@ -1478,6 +1515,7 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
                             title_override=st.session_state["docx_title"].strip() or None,
                             index_now=st.session_state["docx_index_now"],
                             import_genre=_selected_import_genre("docx"),
+                            knowledge_category=_selected_knowledge_category("docx"),
                         )
                     )
                     st.session_state["last_ingestion_response"] = response
@@ -1496,6 +1534,8 @@ def _render_ingest_tab(ingestion_service: IngestionService) -> None:
     st.write(f"Source type: `{response.source_type}`")
     if response.import_genre:
         st.write(f"Genre: `{response.import_genre}`")
+    if response.knowledge_category:
+        st.write(f"Knowledge category: `{response.knowledge_category}`")
     if response.section_count:
         st.write(f"Sections: `{response.section_count}`")
     if response.transcript_chunk_count:
@@ -1510,6 +1550,16 @@ def _selected_import_genre(prefix: str) -> str:
     if new_genre:
         return new_genre
     return st.session_state.get(f"{prefix}_genre", GENERIC_IMPORT_GENRE)
+
+
+def _selected_knowledge_category(prefix: str) -> str | None:
+    selected = st.session_state.get(
+        f"{prefix}_knowledge_category",
+        GENERIC_KNOWLEDGE_CATEGORY_LABEL,
+    )
+    if selected == GENERIC_KNOWLEDGE_CATEGORY_LABEL:
+        return None
+    return selected
 
 
 def _render_debug_section(response: QueryResponse, original_question: str) -> None:
@@ -2117,12 +2167,26 @@ def _init_session_state(config: AppConfig) -> None:
         "ingest_title": "",
         "ingest_genre": GENERIC_IMPORT_GENRE,
         "ingest_new_genre": "",
+        "ingest_knowledge_category": GENERIC_KNOWLEDGE_CATEGORY_LABEL,
         "ingest_index_now": config.auto_index_after_ingestion,
         "youtube_url": "",
         "youtube_title": "",
         "youtube_genre": GENERIC_IMPORT_GENRE,
         "youtube_new_genre": "",
+        "youtube_knowledge_category": GENERIC_KNOWLEDGE_CATEGORY_LABEL,
         "youtube_index_now": config.auto_index_after_ingestion,
+        "pdf_path": "",
+        "pdf_title": "",
+        "pdf_genre": GENERIC_IMPORT_GENRE,
+        "pdf_new_genre": "",
+        "pdf_knowledge_category": GENERIC_KNOWLEDGE_CATEGORY_LABEL,
+        "pdf_index_now": config.auto_index_after_ingestion,
+        "docx_path": "",
+        "docx_title": "",
+        "docx_genre": GENERIC_IMPORT_GENRE,
+        "docx_new_genre": "",
+        "docx_knowledge_category": GENERIC_KNOWLEDGE_CATEGORY_LABEL,
+        "docx_index_now": config.auto_index_after_ingestion,
         "last_ingestion_response": None,
     }
     for key, value in defaults.items():

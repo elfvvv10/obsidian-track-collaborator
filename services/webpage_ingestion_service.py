@@ -15,6 +15,7 @@ from services.ingestion_helpers import (
     fallback_title_from_url,
     make_ingestion_destination,
 )
+from services.knowledge_category_service import KnowledgeCategoryService
 from services.models import IngestionRequest, IngestionResponse
 from utils import ensure_directory
 
@@ -25,6 +26,7 @@ class WebpageIngestionService:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.import_genre_service = ImportGenreService(config)
+        self.knowledge_category_service = KnowledgeCategoryService(config)
 
     def ingest(self, request: IngestionRequest) -> IngestionResponse:
         """Import a webpage URL into the configured vault folder."""
@@ -39,6 +41,7 @@ class WebpageIngestionService:
             title = fallback_title_from_url(url, default_host="webpage")
 
         import_genre = self.import_genre_service.canonicalize(request.import_genre)
+        knowledge_category = self.knowledge_category_service.validate_or_raise(request.knowledge_category)
         output_dir = self.import_genre_service.destination_for(
             self.config.webpage_ingestion_path,
             import_genre,
@@ -54,8 +57,14 @@ class WebpageIngestionService:
             content=extracted["content"],
             status="imported",
             indexed=False,
-            extra_frontmatter={"genre": import_genre},
-            extra_metadata_lines=[("Genre", import_genre)],
+            extra_frontmatter={
+                "genre": import_genre,
+                "knowledge_category": knowledge_category or "",
+            },
+            extra_metadata_lines=[
+                ("Genre", import_genre),
+                ("Knowledge Category", knowledge_category or ""),
+            ],
         )
         destination.write_text(body, encoding="utf-8")
 
@@ -65,6 +74,7 @@ class WebpageIngestionService:
             saved_path=destination,
             title=title,
             import_genre=import_genre,
+            knowledge_category=knowledge_category,
             warnings=extracted["warnings"],
         )
 

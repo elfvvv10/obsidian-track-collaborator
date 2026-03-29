@@ -14,6 +14,7 @@ from saver import prompt_to_save, save_answer
 from services.common import build_note_alias_map, ensure_index_compatible, resolve_note_links
 from services.ingestion_service import IngestionService
 from services.index_service import IndexService
+from services.knowledge_category_service import KnowledgeCategoryService
 from services.models import (
     AnswerMode,
     IngestionRequest,
@@ -93,6 +94,8 @@ def main() -> int:
                 args.url,
                 title=args.title,
                 index_now=args.index_now,
+                genre=args.genre,
+                knowledge_category=args.knowledge_category,
             )
         elif args.command == "ingest-youtube":
             run_ingest_youtube(
@@ -101,6 +104,7 @@ def main() -> int:
                 title=args.title,
                 index_now=args.index_now,
                 genre=args.genre,
+                knowledge_category=args.knowledge_category,
             )
         elif args.command == "ingest-pdf":
             run_ingest_pdf(
@@ -109,6 +113,7 @@ def main() -> int:
                 title=args.title,
                 index_now=args.index_now,
                 genre=args.genre,
+                knowledge_category=args.knowledge_category,
             )
         elif args.command == "ingest-docx":
             run_ingest_docx(
@@ -117,6 +122,7 @@ def main() -> int:
                 title=args.title,
                 index_now=args.index_now,
                 genre=args.genre,
+                knowledge_category=args.knowledge_category,
             )
         else:
             parser.print_help()
@@ -160,6 +166,10 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument("--title", help="Optional title override for the saved note")
     ingest_parser.add_argument("--genre", help="Optional genre folder for this import")
     ingest_parser.add_argument(
+        "--knowledge-category",
+        help="Optional Knowledge category from the vault's Knowledge folder.",
+    )
+    ingest_parser.add_argument(
         "--index-now",
         action="store_true",
         help="Run incremental indexing immediately after saving the ingested note.",
@@ -167,6 +177,10 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_youtube_parser.add_argument("url", help="YouTube URL to ingest into the vault")
     ingest_youtube_parser.add_argument("--title", help="Optional title override for the saved note")
     ingest_youtube_parser.add_argument("--genre", help="Optional genre folder for this import")
+    ingest_youtube_parser.add_argument(
+        "--knowledge-category",
+        help="Optional Knowledge category from the vault's Knowledge folder.",
+    )
     ingest_youtube_parser.add_argument(
         "--index-now",
         action="store_true",
@@ -176,6 +190,10 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_pdf_parser.add_argument("--title", help="Optional title override for the saved note")
     ingest_pdf_parser.add_argument("--genre", help="Optional genre folder for this import")
     ingest_pdf_parser.add_argument(
+        "--knowledge-category",
+        help="Optional Knowledge category from the vault's Knowledge folder.",
+    )
+    ingest_pdf_parser.add_argument(
         "--index-now",
         action="store_true",
         help="Run incremental indexing immediately after saving the ingested note.",
@@ -183,6 +201,10 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_docx_parser.add_argument("file_path", help="Local DOCX file to ingest into the vault")
     ingest_docx_parser.add_argument("--title", help="Optional title override for the saved note")
     ingest_docx_parser.add_argument("--genre", help="Optional genre folder for this import")
+    ingest_docx_parser.add_argument(
+        "--knowledge-category",
+        help="Optional Knowledge category from the vault's Knowledge folder.",
+    )
     ingest_docx_parser.add_argument(
         "--index-now",
         action="store_true",
@@ -404,14 +426,17 @@ def run_ingest_webpage(
     title: str | None = None,
     index_now: bool = False,
     genre: str | None = None,
+    knowledge_category: str | None = None,
 ) -> None:
     """Import a webpage into the vault and optionally index it."""
+    knowledge_category = KnowledgeCategoryService(config).validate_or_raise(knowledge_category)
     response = IngestionService(config).ingest_webpage(
         IngestionRequest(
             source=url,
             title_override=title,
             index_now=True if index_now else None,
             import_genre=genre,
+            knowledge_category=knowledge_category,
         )
     )
 
@@ -419,6 +444,8 @@ def run_ingest_webpage(
     print(f"Title: {response.title}")
     print(f"Saved Path: {response.saved_path}")
     print(f"Source Type: {response.source_type}")
+    if response.knowledge_category:
+        print(f"Knowledge Category: {response.knowledge_category}")
     print(f"Indexed Now: {'yes' if response.index_triggered else 'no'}")
     for warning in response.warnings:
         print(f"\nWarning: {warning}")
@@ -431,14 +458,17 @@ def run_ingest_youtube(
     title: str | None = None,
     index_now: bool = False,
     genre: str | None = None,
+    knowledge_category: str | None = None,
 ) -> None:
     """Import a YouTube transcript into the vault and optionally index it."""
+    knowledge_category = KnowledgeCategoryService(config).validate_or_raise(knowledge_category)
     response = IngestionService(config).ingest_youtube(
         IngestionRequest(
             source=url,
             title_override=title,
             index_now=True if index_now else None,
             import_genre=genre,
+            knowledge_category=knowledge_category,
         )
     )
 
@@ -446,6 +476,8 @@ def run_ingest_youtube(
     print(f"Title: {response.title}")
     print(f"Saved Path: {response.saved_path}")
     print(f"Source Type: {response.source_type}")
+    if response.knowledge_category:
+        print(f"Knowledge Category: {response.knowledge_category}")
     print(f"Indexed Now: {'yes' if response.index_triggered else 'no'}")
     for warning in response.warnings:
         print(f"\nWarning: {warning}")
@@ -458,14 +490,17 @@ def run_ingest_pdf(
     title: str | None = None,
     index_now: bool = False,
     genre: str | None = None,
+    knowledge_category: str | None = None,
 ) -> None:
     """Import a PDF into the vault and optionally index it."""
+    knowledge_category = KnowledgeCategoryService(config).validate_or_raise(knowledge_category)
     response = IngestionService(config).ingest_pdf(
         IngestionRequest(
             source=file_path,
             title_override=title,
             index_now=True if index_now else None,
             import_genre=genre,
+            knowledge_category=knowledge_category,
         )
     )
 
@@ -473,6 +508,8 @@ def run_ingest_pdf(
     print(f"Title: {response.title}")
     print(f"Saved Path: {response.saved_path}")
     print(f"Source Type: {response.source_type}")
+    if response.knowledge_category:
+        print(f"Knowledge Category: {response.knowledge_category}")
     print(f"Indexed Now: {'yes' if response.index_triggered else 'no'}")
     for warning in response.warnings:
         print(f"\nWarning: {warning}")
@@ -485,14 +522,17 @@ def run_ingest_docx(
     title: str | None = None,
     index_now: bool = False,
     genre: str | None = None,
+    knowledge_category: str | None = None,
 ) -> None:
     """Import a DOCX file into the vault and optionally index it."""
+    knowledge_category = KnowledgeCategoryService(config).validate_or_raise(knowledge_category)
     response = IngestionService(config).ingest_docx(
         IngestionRequest(
             source=file_path,
             title_override=title,
             index_now=True if index_now else None,
             import_genre=genre,
+            knowledge_category=knowledge_category,
         )
     )
 
@@ -500,6 +540,8 @@ def run_ingest_docx(
     print(f"Title: {response.title}")
     print(f"Saved Path: {response.saved_path}")
     print(f"Source Type: {response.source_type}")
+    if response.knowledge_category:
+        print(f"Knowledge Category: {response.knowledge_category}")
     print(f"Indexed Now: {'yes' if response.index_triggered else 'no'}")
     for warning in response.warnings:
         print(f"\nWarning: {warning}")

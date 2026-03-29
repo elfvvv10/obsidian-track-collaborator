@@ -31,6 +31,7 @@ def make_config(root: Path) -> AppConfig:
         ollama_chat_model="hermes3",
         ollama_embedding_model="nomic-embed-text",
         top_k_results=3,
+        curated_knowledge_folder="Knowledge",
     )
 
 
@@ -315,11 +316,13 @@ class CLITests(unittest.TestCase):
             (root / "vault").mkdir()
             (root / "output").mkdir()
             config = make_config(root)
+            (config.curated_knowledge_path / "Arrangement").mkdir(parents=True)
             response = IngestionResponse(
                 source="https://example.com/article",
                 source_type="webpage",
                 saved_path=root / "vault" / "ingested_webpages" / "article.md",
                 title="Example Article",
+                knowledge_category="Arrangement",
                 index_triggered=True,
             )
 
@@ -328,7 +331,16 @@ class CLITests(unittest.TestCase):
                 return_value=response,
             ) as ingest_mock, patch(
                 "sys.argv",
-                ["main.py", "ingest-webpage", "https://example.com/article", "--title", "Example Article", "--index-now"],
+                [
+                    "main.py",
+                    "ingest-webpage",
+                    "https://example.com/article",
+                    "--title",
+                    "Example Article",
+                    "--knowledge-category",
+                    "arrangement",
+                    "--index-now",
+                ],
             ):
                 buffer = io.StringIO()
                 with redirect_stdout(buffer):
@@ -338,10 +350,12 @@ class CLITests(unittest.TestCase):
             request = ingest_mock.call_args.args[0]
             self.assertEqual(request.source, "https://example.com/article")
             self.assertEqual(request.title_override, "Example Article")
+            self.assertEqual(request.knowledge_category, "Arrangement")
             self.assertTrue(request.index_now)
             output = buffer.getvalue()
             self.assertIn("Ingestion Complete", output)
             self.assertIn("Example Article", output)
+            self.assertIn("Knowledge Category: Arrangement", output)
 
     def test_main_ingest_youtube_command_dispatches_to_ingestion_flow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -349,11 +363,13 @@ class CLITests(unittest.TestCase):
             (root / "vault").mkdir()
             (root / "output").mkdir()
             config = make_config(root)
+            (config.curated_knowledge_path / "References").mkdir(parents=True)
             response = IngestionResponse(
                 source="https://www.youtube.com/watch?v=abc123xyz00",
                 source_type="youtube",
                 saved_path=root / "vault" / "ingested_youtube" / "video.md",
                 title="Example Video",
+                knowledge_category="References",
                 index_triggered=True,
             )
 
@@ -368,6 +384,8 @@ class CLITests(unittest.TestCase):
                     "https://www.youtube.com/watch?v=abc123xyz00",
                     "--title",
                     "Example Video",
+                    "--knowledge-category",
+                    "references",
                     "--index-now",
                 ],
             ):
@@ -379,6 +397,7 @@ class CLITests(unittest.TestCase):
             request = ingest_mock.call_args.args[0]
             self.assertEqual(request.source, "https://www.youtube.com/watch?v=abc123xyz00")
             self.assertEqual(request.title_override, "Example Video")
+            self.assertEqual(request.knowledge_category, "References")
             self.assertTrue(request.index_now)
             output = buffer.getvalue()
             self.assertIn("Ingestion Complete", output)
@@ -390,12 +409,14 @@ class CLITests(unittest.TestCase):
             (root / "vault").mkdir()
             (root / "output").mkdir()
             config = make_config(root)
+            (config.curated_knowledge_path / "Mixing").mkdir(parents=True)
             pdf_path = root / "source.pdf"
             response = IngestionResponse(
                 source=str(pdf_path),
                 source_type="pdf",
                 saved_path=root / "vault" / "ingested_pdfs" / "note.md",
                 title="Example PDF",
+                knowledge_category="Mixing",
                 index_triggered=True,
             )
 
@@ -404,7 +425,18 @@ class CLITests(unittest.TestCase):
                 return_value=response,
             ) as ingest_mock, patch(
                 "sys.argv",
-                ["main.py", "ingest-pdf", str(pdf_path), "--title", "Example PDF", "--genre", "Progressive House", "--index-now"],
+                [
+                    "main.py",
+                    "ingest-pdf",
+                    str(pdf_path),
+                    "--title",
+                    "Example PDF",
+                    "--genre",
+                    "Progressive House",
+                    "--knowledge-category",
+                    "mixing",
+                    "--index-now",
+                ],
             ):
                 buffer = io.StringIO()
                 with redirect_stdout(buffer):
@@ -415,6 +447,7 @@ class CLITests(unittest.TestCase):
             self.assertEqual(request.source, str(pdf_path))
             self.assertEqual(request.title_override, "Example PDF")
             self.assertEqual(request.import_genre, "Progressive House")
+            self.assertEqual(request.knowledge_category, "Mixing")
             self.assertTrue(request.index_now)
             output = buffer.getvalue()
             self.assertIn("Ingestion Complete", output)
@@ -426,12 +459,14 @@ class CLITests(unittest.TestCase):
             (root / "vault").mkdir()
             (root / "output").mkdir()
             config = make_config(root)
+            (config.curated_knowledge_path / "Sound Design").mkdir(parents=True)
             docx_path = root / "source.docx"
             response = IngestionResponse(
                 source=str(docx_path),
                 source_type="docx",
                 saved_path=root / "vault" / "ingested_docx" / "note.md",
                 title="Example DOCX",
+                knowledge_category="Sound Design",
                 index_triggered=True,
             )
 
@@ -440,7 +475,18 @@ class CLITests(unittest.TestCase):
                 return_value=response,
             ) as ingest_mock, patch(
                 "sys.argv",
-                ["main.py", "ingest-docx", str(docx_path), "--title", "Example DOCX", "--genre", "Progressive House", "--index-now"],
+                [
+                    "main.py",
+                    "ingest-docx",
+                    str(docx_path),
+                    "--title",
+                    "Example DOCX",
+                    "--genre",
+                    "Progressive House",
+                    "--knowledge-category",
+                    "sound design",
+                    "--index-now",
+                ],
             ):
                 buffer = io.StringIO()
                 with redirect_stdout(buffer):
@@ -451,10 +497,26 @@ class CLITests(unittest.TestCase):
             self.assertEqual(request.source, str(docx_path))
             self.assertEqual(request.title_override, "Example DOCX")
             self.assertEqual(request.import_genre, "Progressive House")
+            self.assertEqual(request.knowledge_category, "Sound Design")
             self.assertTrue(request.index_now)
             output = buffer.getvalue()
             self.assertIn("Ingestion Complete", output)
             self.assertIn("Example DOCX", output)
+
+    def test_main_ingest_pdf_command_rejects_unknown_knowledge_category(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            config = make_config(root)
+
+            with patch("main.load_config", return_value=config), patch(
+                "sys.argv",
+                ["main.py", "ingest-pdf", str(root / "source.pdf"), "--knowledge-category", "Unknown"],
+            ):
+                exit_code = main.main()
+
+            self.assertEqual(exit_code, 1)
 
     def test_main_research_command_dispatches_to_research_flow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

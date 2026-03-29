@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Projects/Current Tracks/Moonlit Driver/track_context.md",
+                "file": "Imports/Word Imports/Generic/2026-03-29-module-4-mixing-details-guide.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "track_context"
+              "title": "2026-03-29-module-4-mixing-details-guide"
             }
           }
         ]
@@ -182,10 +182,16 @@
   },
   "active": "6283c1982745da4f",
   "lastOpenFiles": [
+    "Imports/PDF Imports/Generic/2026-03-29-module-4-mixing-details-guide.md",
+    "Imports/Word Imports/Generic/2026-03-29-module-4-mixing-details-guide.md",
+    "Imports/Word Imports/Generic",
+    "Imports/Word Imports",
+    "Projects/Current Tracks/Moonlit Driver/track_context.md",
+    "Imports/PDF Imports/Generic",
+    "Imports/PDF Imports",
     "Sources/System/Obsidian_Track_Collaborator_Roadmap.md",
     "Sources/System/codex_prompt_next_build_sequence.md",
     "Sources/System/collaborator_build_direction.md",
-    "Projects/Current Tracks/Moonlit Driver/track_context.md",
     "Saved Outputs/critiques/Track Concept Critiques/2026-03-27-can-you-please-provide-a-critique-on-the-answer.md",
     "Saved Outputs/track_contexts/moonlit_driver.yaml",
     "Saved Outputs/track_contexts",
@@ -211,12 +217,6 @@
     "Knowledge/Arrangement/progressive_house_arrangement.md",
     "Knowledge/Arrangement/tripchain_arrangement.md",
     "Drafts",
-    "Templates/track_context_template.md",
-    "Templates/session_note_template.md",
-    "Sources/Frameworks",
-    "Templates/README.md",
-    "Saved Outputs/critiques/Track Concept Critiques",
-    "Saved Outputs/critiques/Genre Fit Reviews",
-    "Saved Outputs/critiques"
+    "Templates/track_context_template.md"
   ]
 }

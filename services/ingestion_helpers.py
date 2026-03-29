@@ -38,6 +38,8 @@ def build_ingested_markdown_note(
     if source_path:
         frontmatter_lines.append(f'source_path: "{escape_frontmatter(source_path)}"')
     for key, value in (extra_frontmatter or {}).items():
+        if value is None or value == "":
+            continue
         frontmatter_lines.append(f'{key}: "{escape_frontmatter(value)}"')
     frontmatter_lines.append("---")
 
@@ -47,6 +49,8 @@ def build_ingested_markdown_note(
     if source_path:
         metadata_lines.insert(0, f"**Source File:** {source_path}")
     for label, value in (extra_metadata_lines or []):
+        if value is None or value == "":
+            continue
         metadata_lines.append(f"**{label}:** {value}")
 
     return (

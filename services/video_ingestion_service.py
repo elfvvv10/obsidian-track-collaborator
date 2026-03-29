@@ -161,6 +161,7 @@ class VideoIngestionService:
             domain_profile="electronic_music",
             workflow_type="knowledge_import",
             import_genre=import_genre,
+            knowledge_category=request.knowledge_category,
             topics=self._build_topics(sections),
             tags=self._build_tags(import_genre, sections),
             summary=self._build_document_summary(sections),
@@ -186,6 +187,7 @@ class VideoIngestionService:
             saved_path=destination,
             title=title,
             import_genre=import_genre,
+            knowledge_category=request.knowledge_category,
             section_count=document.section_count,
             transcript_chunk_count=document.transcript_chunk_count,
             warnings=warnings,
@@ -448,6 +450,7 @@ def render_video_knowledge_markdown(document: VideoKnowledgeDocument) -> str:
         ("domain_profile", document.domain_profile),
         ("workflow_type", document.workflow_type),
         ("genre", document.import_genre),
+        ("knowledge_category", document.knowledge_category),
     )
     for key, value in optional_scalar_fields:
         if value is not None and str(value).strip():
@@ -475,6 +478,7 @@ def render_video_knowledge_markdown(document: VideoKnowledgeDocument) -> str:
         f"- **Published:** {document.published_at or 'Unknown'}",
         f"- **Duration:** {document.duration_readable or 'Unknown'}",
         f"- **Language:** {document.language or 'Unknown'}",
+        *([f"- **Knowledge Category:** {document.knowledge_category}"] if document.knowledge_category else []),
         f"- **Imported:** {document.imported_at or current_timestamp()}",
         "",
         "## Summary",
@@ -561,6 +565,7 @@ def parse_video_knowledge_document(frontmatter: dict[str, object] | None, body: 
         workflow_type=_clean_str(frontmatter.get("workflow_type")),
         import_notes=_clean_str(frontmatter.get("import_notes")),
         import_genre=_clean_str(frontmatter.get("genre")),
+        knowledge_category=_clean_str(frontmatter.get("knowledge_category")),
         topics=_as_list(frontmatter.get("topics")),
         tags=_as_list(frontmatter.get("tags")),
         summary=_extract_heading_block(body, "Summary"),

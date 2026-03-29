@@ -371,6 +371,7 @@ class VideoKnowledgeDocument:
     workflow_type: str | None = None
     import_notes: str | None = None
     import_genre: str | None = None
+    knowledge_category: str | None = None
     topics: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     summary: str = ""
@@ -761,6 +762,7 @@ class IngestionRequest:
     title_override: str | None = None
     index_now: bool | None = None
     import_genre: str | None = None
+    knowledge_category: str | None = None
 
 
 @dataclass(slots=True)
@@ -772,6 +774,7 @@ class IngestionResponse:
     saved_path: Path
     title: str
     import_genre: str | None = None
+    knowledge_category: str | None = None
     index_triggered: bool = False
     section_count: int = 0
     transcript_chunk_count: int = 0
