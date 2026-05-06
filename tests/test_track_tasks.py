@@ -61,6 +61,75 @@ class TrackTaskServiceTests(unittest.TestCase):
             self.assertEqual(loaded[0].linked_section, "intro")
             self.assertEqual(loaded[0].notes, "Trim before the first fill")
 
+    def test_task_path_sanitizes_free_text_track_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            service = TrackTaskService(make_config(root))
+
+            service.add_task("../Warehouse Hypnosis/../../bad tune", text="Check the groove")
+
+            saved_files = list(service.task_directory.glob("*.tasks.yaml"))
+            self.assertEqual(len(saved_files), 1)
+            self.assertEqual(saved_files[0].parent, service.task_directory)
+            self.assertRegex(saved_files[0].name, r"^Warehouse_Hypnosis_bad_tune_[0-9a-f]{8}\.tasks\.yaml$")
+            self.assertEqual(len(service.load_tasks("../Warehouse Hypnosis/../../bad tune")), 1)
+
+    def test_task_path_distinguishes_sanitized_name_collisions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            service = TrackTaskService(make_config(root))
+
+            service.add_task("a/b", text="First")
+            service.add_task("a b", text="Second")
+
+            saved_names = sorted(path.name for path in service.task_directory.glob("*.tasks.yaml"))
+            self.assertEqual(len(saved_names), 2)
+            self.assertTrue(all(name.startswith("a_b_") for name in saved_names))
+            self.assertNotEqual(saved_names[0], saved_names[1])
+            self.assertEqual(service.load_tasks("a/b")[0].text, "First")
+            self.assertEqual(service.load_tasks("a b")[0].text, "Second")
+
+    def test_load_tasks_reads_existing_legacy_flat_filename(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            service = TrackTaskService(make_config(root))
+            legacy_path = service.task_directory / "Warehouse Hypnosis.tasks.yaml"
+            legacy_path.parent.mkdir(parents=True, exist_ok=True)
+            legacy_path.write_text(
+                yaml.safe_dump(
+                    {
+                        "track_id": "Warehouse Hypnosis",
+                        "schema_version": "track_tasks_v1",
+                        "tasks": [
+                            {
+                                "id": "task-1",
+                                "text": "Check the old memory",
+                                "status": "open",
+                                "priority": "medium",
+                                "linked_section": "",
+                                "created_from": "user",
+                                "created_at": "2026-01-01T00:00:00",
+                                "completed_at": None,
+                                "notes": "",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            loaded = service.load_tasks("Warehouse Hypnosis")
+
+            self.assertEqual(len(loaded), 1)
+            self.assertEqual(loaded[0].text, "Check the old memory")
+            self.assertFalse(any("_" in path.name for path in service.task_directory.glob("*.tasks.yaml")))
+
     def test_complete_update_and_delete_task(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

@@ -10,6 +10,7 @@ import yaml
 from config import AppConfig
 from metadata_parser import parse_markdown_metadata
 from services.models import CollaborationWorkflow, TrackContext, TrackContextSuggestions
+from services.track_path_utils import legacy_flat_track_file_stem, safe_track_file_stem
 from services.track_context_utils import normalize_track_context
 from utils import ensure_directory, get_logger
 
@@ -73,7 +74,7 @@ class TrackContextService:
 
     def canonical_exists(self, track_id: str) -> bool:
         """Return whether a canonical YAML Track Context already exists."""
-        return self._yaml_path(track_id).exists()
+        return self._existing_yaml_path(track_id).exists()
 
     def load(self, track_id: str) -> TrackContext:
         """Compatibility wrapper for canonical YAML Track Context loading."""
@@ -81,7 +82,7 @@ class TrackContextService:
 
     def load_canonical_track_context(self, track_id: str) -> TrackContext:
         """Load and normalize a canonical YAML Track Context file."""
-        path = self._yaml_path(track_id)
+        path = self._existing_yaml_path(track_id)
         raw_text = path.read_text(encoding="utf-8") if path.exists() else ""
         if not raw_text.strip():
             raw_data: dict[str, object] = {"track_id": track_id}
@@ -295,8 +296,18 @@ class TrackContextService:
         return migrated
 
     def _yaml_path(self, track_id: str) -> Path:
-        safe_track_id = (track_id or "default_track").strip() or "default_track"
+        safe_track_id = safe_track_file_stem(track_id)
         return self.yaml_directory / f"{safe_track_id}.yaml"
+
+    def _existing_yaml_path(self, track_id: str) -> Path:
+        safe_path = self._yaml_path(track_id)
+        if safe_path.exists():
+            return safe_path
+        legacy_stem = legacy_flat_track_file_stem(track_id)
+        if legacy_stem is None:
+            return safe_path
+        legacy_path = self.yaml_directory / f"{legacy_stem}.yaml"
+        return legacy_path if legacy_path.exists() else safe_path
 
     def _resolve_track_context_path(self, track_context_path: str | None) -> Path | None:
         return self.resolve_legacy_track_context_path(track_context_path)

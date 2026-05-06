@@ -76,17 +76,17 @@ def track_context_status(
     if not active_track_id.strip() and not entered_track_id.strip():
         return (
             "Track memory is on, but no active track is loaded.",
-            "Enter a stable Track ID for your in-progress track, then click Load Track Context.",
+            "Enter a track name or stable ID, then click Start / Resume to create or reopen its track memory.",
         )
     if not active_track_id.strip() and entered_track_id.strip():
         return (
             f"`{entered_track_id.strip()}` is ready to load.",
-            "Load Track Context will open an existing track memory or initialize a new one for this in-progress track.",
+            "Start / Resume will open an existing track memory or create a new one for this in-progress track.",
         )
     if track_context is None:
         return (
             f"Track memory is waiting for `{active_track_id.strip()}`.",
-            "Load Track Context again if you want to refresh the active track memory.",
+            "Use Start / Resume again if you want to refresh the active track memory.",
         )
     if existed_before_load:
         display_name = track_context.track_name or track_context.track_id
@@ -97,12 +97,22 @@ def track_context_status(
     if entered_track_id.strip() and entered_track_id.strip() != active_track_id.strip():
         return (
             f"Active track memory: `{track_context.track_name or track_context.track_id}`.",
-            f"`{entered_track_id.strip()}` is pending. Click Load Track Context to switch active tracks.",
+            f"`{entered_track_id.strip()}` is pending. Click Start / Resume to switch active tracks.",
         )
     return (
         f"Started a new track memory for `{track_context.track_id}`.",
         "This is a fresh persistent track memory. Add details and save when ready.",
     )
+
+
+def track_memory_workflow_steps() -> list[str]:
+    """Return the beginner workflow shown near the Ask composer."""
+    return [
+        "Start or resume a track memory.",
+        "Pick the workflow that matches what you need now.",
+        "Ask for critique, arrangement help, sound design, or research.",
+        "Apply useful suggestions or save updates back to the track memory.",
+    ]
 
 
 def critique_support_summary(

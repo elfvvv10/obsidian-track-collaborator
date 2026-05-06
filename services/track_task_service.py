@@ -10,6 +10,7 @@ import yaml
 
 from config import AppConfig
 from services.models import PersistedTrackTask, SessionTask
+from services.track_path_utils import legacy_flat_track_file_stem, safe_track_file_stem
 from utils import ensure_directory, get_logger, current_timestamp
 
 
@@ -30,12 +31,22 @@ class TrackTaskService:
         return self.config.obsidian_output_path / "track_contexts"
 
     def task_path(self, track_id: str) -> Path:
-        safe_track_id = (track_id or "default_track").strip() or "default_track"
+        safe_track_id = safe_track_file_stem(track_id)
         return self.task_directory / f"{safe_track_id}.tasks.yaml"
+
+    def existing_task_path(self, track_id: str) -> Path:
+        safe_path = self.task_path(track_id)
+        if safe_path.exists():
+            return safe_path
+        legacy_stem = legacy_flat_track_file_stem(track_id)
+        if legacy_stem is None:
+            return safe_path
+        legacy_path = self.task_directory / f"{legacy_stem}.tasks.yaml"
+        return legacy_path if legacy_path.exists() else safe_path
 
     def load_tasks(self, track_id: str) -> list[PersistedTrackTask]:
         """Load persisted tasks for a track, returning normalized defaults when absent."""
-        path = self.task_path(track_id)
+        path = self.existing_task_path(track_id)
         raw_text = path.read_text(encoding="utf-8") if path.exists() else ""
         if not raw_text.strip():
             return []

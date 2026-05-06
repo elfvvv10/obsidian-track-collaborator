@@ -24,6 +24,7 @@ from services.ui_session_helpers import (
     synced_dev_mode_preset_selection,
     synced_chat_provider_selection,
     suggestion_groups,
+    track_memory_workflow_steps,
     track_context_status,
 )
 from utils import RetrievedChunk
@@ -81,7 +82,16 @@ class UISessionHelpersTests(unittest.TestCase):
         )
 
         self.assertIn("ready to load", title)
-        self.assertIn("Load Track Context", caption)
+        self.assertIn("Start / Resume", caption)
+
+    def test_track_memory_workflow_steps_are_beginner_friendly(self) -> None:
+        steps = track_memory_workflow_steps()
+
+        self.assertEqual(len(steps), 4)
+        self.assertIn("Start or resume", steps[0])
+        self.assertIn("Pick the workflow", steps[1])
+        self.assertIn("Ask for", steps[2])
+        self.assertIn("save updates", steps[3])
 
     def test_critique_support_summary_distinguishes_arrangement_support(self) -> None:
         title, lines = critique_support_summary(

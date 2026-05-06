@@ -138,6 +138,57 @@ class TrackContextPersistenceTests(unittest.TestCase):
             self.assertEqual(empty_loaded.track_id, "empty_track")
             self.assertIsNone(empty_loaded.current_problem)
 
+    def test_canonical_yaml_path_sanitizes_free_text_track_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            service = TrackContextService(make_config(root))
+
+            context = service.load_or_create_canonical_track_context("../Warehouse Hypnosis/../../bad tune")
+
+            self.assertEqual(context.track_id, "../Warehouse Hypnosis/../../bad tune")
+            saved_files = list(service.yaml_directory.glob("*.yaml"))
+            self.assertEqual(len(saved_files), 1)
+            self.assertEqual(saved_files[0].parent, service.yaml_directory)
+            self.assertRegex(saved_files[0].name, r"^Warehouse_Hypnosis_bad_tune_[0-9a-f]{8}\.yaml$")
+
+    def test_canonical_yaml_path_distinguishes_sanitized_name_collisions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            service = TrackContextService(make_config(root))
+
+            first = service.load_or_create_canonical_track_context("a/b")
+            second = service.load_or_create_canonical_track_context("a b")
+
+            self.assertEqual(first.track_id, "a/b")
+            self.assertEqual(second.track_id, "a b")
+            saved_names = sorted(path.name for path in service.yaml_directory.glob("*.yaml"))
+            self.assertEqual(len(saved_names), 2)
+            self.assertTrue(all(name.startswith("a_b_") for name in saved_names))
+            self.assertNotEqual(saved_names[0], saved_names[1])
+
+    def test_canonical_yaml_loads_existing_legacy_flat_filename(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            service = TrackContextService(make_config(root))
+            legacy_path = service.yaml_directory / "Warehouse Hypnosis.yaml"
+            legacy_path.parent.mkdir(parents=True, exist_ok=True)
+            legacy_path.write_text(
+                yaml.safe_dump({"track_id": "Warehouse Hypnosis", "title": "Original Memory"}),
+                encoding="utf-8",
+            )
+
+            loaded = service.load_or_create_canonical_track_context("Warehouse Hypnosis")
+
+            self.assertEqual(loaded.track_name, "Original Memory")
+            self.assertTrue(service.canonical_exists("Warehouse Hypnosis"))
+            self.assertFalse(any("_" in path.stem for path in service.yaml_directory.glob("*.yaml")))
+
     def test_load_or_create_reads_legacy_track_name_and_reference_tracks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

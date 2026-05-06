@@ -216,7 +216,7 @@ class TrackContextSuggestionService:
     ) -> str | None:
         """Detect if the answer focuses on a particular section."""
         lowered = answer.lower()
-        for section_name in _SECTION_NAMES:
+        for section_name in sorted(_SECTION_NAMES, key=len, reverse=True):
             escaped = re.escape(section_name)
             section_patterns = (
                 rf"\bfocus\s+(?:on|is)\s+(?:the\s+)?{escaped}\b",
