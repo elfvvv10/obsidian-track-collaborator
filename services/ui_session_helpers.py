@@ -159,6 +159,18 @@ def suggestion_groups(
         groups.append(("Current Stage", suggestions.current_stage))
     if suggestions.current_problem:
         groups.append(("Current Problem", suggestions.current_problem))
+    if suggestions.vibe_suggestions:
+        groups.append(("Vibe", suggestions.vibe_suggestions))
+    if suggestions.reference_track_suggestions:
+        groups.append(("Reference Tracks", suggestions.reference_track_suggestions))
+    if suggestions.section_suggestions:
+        groups.append(("Sections", suggestions.section_suggestions))
+    if suggestions.section_focus:
+        groups.append(("Section Focus", suggestions.section_focus))
+    if suggestions.bpm_suggestion is not None:
+        groups.append(("BPM", str(suggestions.bpm_suggestion)))
+    if suggestions.key_suggestion:
+        groups.append(("Key", suggestions.key_suggestion))
     return groups
 
 

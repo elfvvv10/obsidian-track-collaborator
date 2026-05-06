@@ -159,11 +159,17 @@ class TrackContextService:
         updates: dict[str, object] = {
             "known_issues": _merge_unique(context.known_issues, suggestions.known_issues),
             "goals": _merge_unique(context.goals, suggestions.goals),
+            "vibe": _merge_unique(context.vibe, suggestions.vibe_suggestions),
+            "reference_tracks": _merge_unique(context.reference_tracks, suggestions.reference_track_suggestions),
         }
         if suggestions.current_stage:
             updates["current_stage"] = suggestions.current_stage
         if suggestions.current_problem:
             updates["current_problem"] = suggestions.current_problem
+        if suggestions.bpm_suggestion is not None:
+            updates["bpm"] = suggestions.bpm_suggestion
+        if suggestions.key_suggestion:
+            updates["key"] = suggestions.key_suggestion
         return self.update_canonical_track_context_fields(track_id, updates)
 
     def get_track_context(

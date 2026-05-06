@@ -137,6 +137,7 @@ class PromptService:
             question=question,
             track_context=track_context,
             section_focus=section_focus,
+            use_track_context=use_track_context,
         )
         system_prompt = _build_system_prompt(
             answer_mode,
@@ -1369,8 +1370,9 @@ def _track_context_update_instructions(
     question: str,
     track_context: TrackContext | None,
     section_focus: str | None = None,
+    use_track_context: bool = False,
 ) -> str:
-    if track_context is None or collaboration_workflow == CollaborationWorkflow.RESEARCH_SESSION:
+    if track_context is None or not use_track_context or collaboration_workflow == CollaborationWorkflow.RESEARCH_SESSION:
         return ""
 
     capture_intent = _has_track_context_capture_intent(question)

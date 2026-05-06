@@ -16,13 +16,22 @@ class FrameworkService:
     """Resolve and load framework documents for specific workflows."""
 
     _FRAMEWORK_REGISTRY: dict[CollaborationWorkflow, str] = {
-        CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE: "track_critique_framework_v1.md",
+        CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE: "track_critique_framework",
+        CollaborationWorkflow.GENRE_FIT_REVIEW: "track_critique_framework",
     }
 
     def __init__(self, config: AppConfig, *, repo_root: Path | None = None) -> None:
         self.config = config
         self.repo_root = repo_root or Path(__file__).resolve().parents[1]
         self._framework_cache: dict[Path, str] = {}
+
+    def _framework_filename(self, workflow: CollaborationWorkflow) -> str | None:
+        """Return the versioned framework filename for a workflow, or None."""
+        base = self._FRAMEWORK_REGISTRY.get(workflow)
+        if not base:
+            return None
+        version = self.config.track_critique_framework_version.strip() or "v1"
+        return f"{base}_{version}.md"
 
     def get_framework_text(
         self,
@@ -69,7 +78,7 @@ class FrameworkService:
         return framework_text
 
     def _resolve_framework_path(self, workflow: CollaborationWorkflow) -> tuple[Path | None, str]:
-        filename = self._FRAMEWORK_REGISTRY.get(workflow)
+        filename = self._framework_filename(workflow)
         if not filename:
             return None, "unregistered"
 
@@ -104,7 +113,10 @@ class FrameworkService:
         return None
 
     def _resolve_override_path(self, workflow: CollaborationWorkflow) -> Path | None:
-        if workflow != CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE:
+        if workflow not in {
+            CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE,
+            CollaborationWorkflow.GENRE_FIT_REVIEW,
+        }:
             return None
         raw_path = self.config.track_critique_framework_path.strip()
         if not raw_path:

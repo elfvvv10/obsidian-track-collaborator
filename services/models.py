@@ -519,10 +519,27 @@ class TrackContextSuggestions:
     goals: list[str] = field(default_factory=list)
     current_stage: str | None = None
     current_problem: str | None = None
+    vibe_suggestions: list[str] = field(default_factory=list)
+    reference_track_suggestions: list[str] = field(default_factory=list)
+    section_suggestions: list[str] = field(default_factory=list)
+    section_focus: str | None = None
+    bpm_suggestion: int | None = None
+    key_suggestion: str | None = None
 
     def is_empty(self) -> bool:
         """Return whether the suggestion payload contains any actionable updates."""
-        return not (self.known_issues or self.goals or self.current_stage or self.current_problem)
+        return not (
+            self.known_issues
+            or self.goals
+            or self.current_stage
+            or self.current_problem
+            or self.vibe_suggestions
+            or self.reference_track_suggestions
+            or self.section_suggestions
+            or self.section_focus
+            or self.bpm_suggestion is not None
+            or self.key_suggestion is not None
+        )
 
 
 @dataclass(slots=True)
