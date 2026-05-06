@@ -840,6 +840,7 @@ def _build_answer_result(
     collaboration_workflow=CollaborationWorkflow.GENERAL_ASK,
     workflow_input: WorkflowInput | None = None,
     track_context: TrackContext | None = None,
+    use_track_context: bool = False,
     section_focus: str | None = None,
     recent_conversation: list[ChatMessage] | None = None,
     current_tasks: list[SessionTask] | None = None,

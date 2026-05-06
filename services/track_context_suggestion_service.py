@@ -8,7 +8,7 @@ from services.models import TrackContext, TrackContextSuggestions
 
 # ── Known section names from Track Context and common usage ──
 _SECTION_NAMES = {
-    "intro", "buildup", "build", "drop", "breakdown", "break", "groove",
+    "main groove", "intro", "buildup", "build", "drop", "breakdown", "break", "groove",
     "verse", "chorus", "bridge", "outro", "climax", "transition",
     "pre-drop", "post-drop", "mid-section", "interlude", "riff",
     "main", "hook", "pad", "bass", "drums", "percussion",
@@ -32,8 +32,10 @@ _VIBE_PATTERNS = (
 )
 
 _REFERENCE_PATTERNS = (
-    re.compile(r"(?:reference|similar\s+to|reminiscent\s+of|like)\s*(?::|–|-)?\s*(.+)$", re.IGNORECASE),
-    re.compile(r"^(?:reference|ref)\s*(?::|–)\s*(.+)$", re.IGNORECASE),
+    re.compile(
+        r"^(?:reference\s+track|reference|ref|similar\s+to|reminiscent\s+of|reminds\s+me\s+of|like)\s*(?::|–|-)?\s*(.+)$",
+        re.IGNORECASE,
+    ),
     re.compile(r"\"(.+?)\"\s*(?:vibe|style|reference)", re.IGNORECASE),
 )
 
@@ -65,9 +67,13 @@ _STAGES = (
     "production", "mixing", "mastering", "finalizing",
 )
 
-_BPM_RE = re.compile(r"\b(\d{2,3})\s*(?:bpm|BPM)\b")
+_BPM_PATTERNS = (
+    re.compile(r"\b(\d{2,3})\s*(?:bpm|beats per minute)\b", re.IGNORECASE),
+    re.compile(r"\bbpm\s*[:–\-]?\s*(\d{2,3})\b", re.IGNORECASE),
+    re.compile(r"\btempo\s*[:–\-]?\s*(\d{2,3})\b", re.IGNORECASE),
+)
 _KEY_RE = re.compile(
-    r"\b([A-G][#b]?(?:m|min|major|minor)?)\s*(?:\bkey\b|key\s*:)?",
+    r"(?:key\s+of\s+|\bkey\s*[:–\-]\s*|[\[\(])([A-Ga-g][#b]?(?:m|min|major|minor)?)",
     re.IGNORECASE,
 )
 
@@ -209,9 +215,17 @@ class TrackContextSuggestionService:
         track_context: TrackContext,
     ) -> str | None:
         """Detect if the answer focuses on a particular section."""
-        if not track_context.sections:
-            return None
         lowered = answer.lower()
+        for section_name in _SECTION_NAMES:
+            escaped = re.escape(section_name)
+            section_patterns = (
+                rf"\bfocus\s+(?:on|is)\s+(?:the\s+)?{escaped}\b",
+                rf"\b(?:on|in|for)\s+(?:the\s+)?{escaped}\b",
+                rf"\b(?:the|this|that)\s+{escaped}\b",
+                rf"(?:^|\n)\s*{escaped}\s+(?:needs|section|is|feels)\b",
+            )
+            if any(re.search(pattern, lowered) for pattern in section_patterns):
+                return section_name
         for section_name in track_context.sections:
             if section_name.lower() in lowered:
                 return section_name
@@ -223,10 +237,14 @@ class TrackContextSuggestionService:
         track_context: TrackContext,
     ) -> int | None:
         """Extract a suggested BPM if mentioned and different from current."""
-        bpm_match = _BPM_RE.search(answer)
-        if not bpm_match:
+        suggested = None
+        for pattern in _BPM_PATTERNS:
+            bpm_match = pattern.search(answer)
+            if bpm_match:
+                suggested = int(bpm_match.group(1))
+                break
+        if suggested is None or not 20 <= suggested <= 300:
             return None
-        suggested = int(bpm_match.group(1))
         if track_context.bpm and suggested == track_context.bpm:
             return None
         return suggested
@@ -240,7 +258,8 @@ class TrackContextSuggestionService:
         key_match = _KEY_RE.search(answer)
         if not key_match:
             return None
-        suggested = key_match.group(1).strip().capitalize()
+        raw = key_match.group(1).strip()
+        suggested = raw[0].upper() + raw[1:] if raw else raw
         # Normalize to a common form
         suggested = suggested.replace("Major", "").replace("major", "").strip()
         if suggested.endswith("m"):

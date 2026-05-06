@@ -538,8 +538,8 @@ class TrackContextSuggestions:
             or self.reference_track_suggestions
             or self.section_suggestions
             or self.section_focus
-            or self.bpm_suggestion
-            or self.key_suggestion
+            or self.bpm_suggestion is not None
+            or self.key_suggestion is not None
         )
 
 

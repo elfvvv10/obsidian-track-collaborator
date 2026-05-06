@@ -107,3 +107,26 @@ class ConfigLoadingTests(unittest.TestCase):
         self.assertEqual(config.chat_provider, "ollama")
         self.assertEqual(config.openai_api_key, "")
         self.assertEqual(config.openai_chat_model, "")
+
+    def test_load_config_reads_track_critique_framework_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir, patch.dict(
+            os.environ,
+            {
+                "OBSIDIAN_VAULT_PATH": str(Path(tmp_dir) / "vault"),
+                "OBSIDIAN_OUTPUT_PATH": str(Path(tmp_dir) / "output"),
+                "CHROMA_DB_PATH": str(Path(tmp_dir) / "chroma"),
+                "CHAT_PROVIDER": "ollama",
+                "EMBEDDING_PROVIDER": "ollama",
+                "TRACK_CRITIQUE_FRAMEWORK_VERSION": "v2",
+            },
+            clear=True,
+        ):
+            (Path(tmp_dir) / "vault").mkdir()
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(tmp_dir)
+                config = load_config()
+            finally:
+                os.chdir(original_cwd)
+
+        self.assertEqual(config.track_critique_framework_version, "v2")

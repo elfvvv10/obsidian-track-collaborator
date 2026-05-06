@@ -65,6 +65,51 @@ class TrackContextSuggestionServiceTests(unittest.TestCase):
 
         self.assertIsNotNone(suggestions)
 
+    def test_extracts_new_track_context_suggestion_fields_cleanly(self) -> None:
+        suggestions = self.service.suggest(
+            "\n".join(
+                [
+                    "Vibe: dark and driving",
+                    "Reference track: Bicep - Glue",
+                    "Tempo: 126",
+                    "key of F#m",
+                    "Focus on the drop",
+                ]
+            ),
+            TrackContext(track_id="moonlit_driver"),
+        )
+
+        self.assertIsNotNone(suggestions)
+        self.assertEqual(suggestions.vibe_suggestions, ["dark and driving"])
+        self.assertEqual(suggestions.reference_track_suggestions, ["Bicep - Glue"])
+        self.assertEqual(suggestions.bpm_suggestion, 126)
+        self.assertEqual(suggestions.key_suggestion, "F#m")
+        self.assertEqual(suggestions.section_focus, "drop")
+
+    def test_new_track_context_suggestions_stay_conservative(self) -> None:
+        suggestions = self.service.suggest(
+            "\n".join(
+                [
+                    "Vibe: dark and driving",
+                    "Reference track: Bicep - Glue",
+                    "Tempo: 999",
+                    "I like the kick but it needs less mud.",
+                    "Focus on the main groove",
+                ]
+            ),
+            TrackContext(
+                track_id="moonlit_driver",
+                vibe=["dark and driving"],
+                reference_tracks=["Bicep - Glue"],
+            ),
+        )
+
+        self.assertIsNotNone(suggestions)
+        self.assertEqual(suggestions.vibe_suggestions, [])
+        self.assertEqual(suggestions.reference_track_suggestions, [])
+        self.assertIsNone(suggestions.bpm_suggestion)
+        self.assertEqual(suggestions.section_focus, "main groove")
+
 
 class TrackContextApplySuggestionTests(unittest.TestCase):
     def test_apply_suggestions_appends_unique_items_and_replaces_non_empty_fields(self) -> None:
@@ -97,6 +142,37 @@ class TrackContextApplySuggestionTests(unittest.TestCase):
             self.assertEqual(updated.goals, ["finish arrangement", "increase build tension"])
             self.assertEqual(updated.current_stage, "arrangement")
             self.assertEqual(updated.current_problem, "bassline groove may need more syncopation")
+
+    def test_apply_suggestions_merges_new_context_fields_after_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "vault").mkdir()
+            (root / "output").mkdir()
+            service = TrackContextService(make_config(root))
+            service.update_fields(
+                "moonlit_driver",
+                {
+                    "vibe": ["dark"],
+                    "reference_tracks": ["Bicep - Glue"],
+                    "bpm": 124,
+                    "key": "A minor",
+                },
+            )
+
+            updated = service.apply_suggestions(
+                "moonlit_driver",
+                TrackContextSuggestions(
+                    vibe_suggestions=["dark", "driving"],
+                    reference_track_suggestions=["Bicep - Glue", "Floating Points - Ratio"],
+                    bpm_suggestion=126,
+                    key_suggestion="F#m",
+                ),
+            )
+
+            self.assertEqual(updated.vibe, ["dark", "driving"])
+            self.assertEqual(updated.reference_tracks, ["Bicep - Glue", "Floating Points - Ratio"])
+            self.assertEqual(updated.bpm, 126)
+            self.assertEqual(updated.key, "F#m")
 
 
 class QueryServiceTrackContextSuggestionTests(unittest.TestCase):

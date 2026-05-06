@@ -88,6 +88,7 @@ WEBPAGE_FETCH_TIMEOUT_SECONDS=15
 WEBPAGE_FETCH_USER_AGENT=obsidian-track-collaborator/1.0
 
 TRACK_CRITIQUE_FRAMEWORK_PATH=
+TRACK_CRITIQUE_FRAMEWORK_VERSION=v1
 FRAMEWORK_DEBUG=false
 ```
 
@@ -132,6 +133,12 @@ At runtime, the CLI also supports:
 - `AUTO_SAVE_ANSWER`: save answers automatically
 - `INDEX_SAVED_ANSWERS`: allow generated outputs to become retrievable local material
 - `RESEARCH_SESSIONS_FOLDER`: destination for saved research outputs
+
+## Critique Framework Controls
+
+- `TRACK_CRITIQUE_FRAMEWORK_PATH`: optional explicit path to a critique framework markdown file
+- `TRACK_CRITIQUE_FRAMEWORK_VERSION`: version suffix for discovered framework files, e.g. `v1` resolves to `track_critique_framework_v1.md`
+- `FRAMEWORK_DEBUG`: log framework lookup details when enabled
 
 Saved collaborator outputs are written under `Saved Outputs/` and may include:
 

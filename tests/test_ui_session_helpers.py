@@ -116,6 +116,30 @@ class UISessionHelpersTests(unittest.TestCase):
             ],
         )
 
+    def test_suggestion_groups_includes_extended_track_context_fields(self) -> None:
+        groups = suggestion_groups(
+            TrackContextSuggestions(
+                vibe_suggestions=["dark", "driving"],
+                reference_track_suggestions=["Bicep - Glue"],
+                section_suggestions={"drop": {"issues": ["lacks contrast"], "elements": ["riser"]}},
+                section_focus="drop",
+                bpm_suggestion=126,
+                key_suggestion="F#m",
+            )
+        )
+
+        self.assertEqual(
+            groups,
+            [
+                ("Vibe", ["dark", "driving"]),
+                ("Reference Tracks", ["Bicep - Glue"]),
+                ("BPM", "126"),
+                ("Key", "F#m"),
+                ("Section Focus", "drop"),
+                ("Section: Drop", ["Issues: lacks contrast", "Elements: riser"]),
+            ],
+        )
+
     def test_debug_query_summary_separates_original_and_rewritten_query(self) -> None:
         rows = debug_query_summary(
             "help with the bassline",

@@ -190,6 +190,7 @@ def load_config() -> AppConfig:
         "obsidian-rag-assistant/1.0",
     ).strip()
     track_critique_framework_path = os.getenv("TRACK_CRITIQUE_FRAMEWORK_PATH", "").strip()
+    track_critique_framework_version = os.getenv("TRACK_CRITIQUE_FRAMEWORK_VERSION", "v1").strip()
     framework_debug = _bool_env("FRAMEWORK_DEBUG", default=False)
 
     ensure_directory(output_path)
@@ -249,6 +250,7 @@ def load_config() -> AppConfig:
         webpage_fetch_timeout_seconds=webpage_fetch_timeout_seconds,
         webpage_fetch_user_agent=webpage_fetch_user_agent,
         track_critique_framework_path=track_critique_framework_path,
+        track_critique_framework_version=track_critique_framework_version,
         framework_debug=framework_debug,
     )
 
