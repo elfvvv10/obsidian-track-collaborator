@@ -83,25 +83,15 @@ class TrackContextSuggestionService:
 
     def _extract_section_focus(self, answer: str) -> str | None:
         lowered = answer.lower()
-        # Exclude lines where section words follow action verbs (goals, not focus)
         for focus in _SECTION_FOCUS_NAMES:
-            match = re.search(rf"\b{re.escape(focus)}\b", lowered)
-            if not match:
-                continue
-            # Check context before the match — skip if preceded by action verbs
-            before = lowered[max(0, match.start() - 30):match.start()]
-            if re.search(r"\b(increase|improve|add|create|build|reduce|fix|test)\s+\w+\s+(the\s+)?$", before):
-                continue
-            # Skip if part of "issue: ..." or "goal: ..." extraction context
-            line_start = lowered.rfind("\n", 0, match.start()) + 1
-            line_text = lowered[line_start:].split("\n")[0].strip()
-            # Only match if it looks like a section-mention, not a general word
-            # Must be preceded by article, preposition, or at line start
-            prefix_chars = lowered[match.start() - 3:match.start()] if match.start() >= 3 else lowered[:match.start()]
-            if re.search(r"(^|\s)(the\s+|this\s+|that\s+|on\s+|in\s+|to\s+the\s+|focus\s+(on|is)\s+)$", prefix_chars, re.IGNORECASE):
-                return focus
-            # Direct section mentions like "the drop", "intro needs work", "break section"
-            if re.search(rf"\bthe\s+{re.escape(focus)}\b", before + " " + focus):
+            escaped = re.escape(focus)
+            section_patterns = (
+                rf"\bfocus\s+(?:on|is)\s+(?:the\s+)?{escaped}\b",
+                rf"\b(?:on|in|for)\s+(?:the\s+)?{escaped}\b",
+                rf"\b(?:the|this|that)\s+{escaped}\b",
+                rf"(?:^|\n)\s*{escaped}\s+(?:needs|section|is|feels)\b",
+            )
+            if any(re.search(pattern, lowered) for pattern in section_patterns):
                 return focus
         return None
 
@@ -166,7 +156,7 @@ _VIBE_PATTERNS = (
 )
 
 _REFERENCE_PATTERNS = (
-    re.compile(r"^(?:reference|reference track|similar to|reminds me of|like)\s*[:\\-]?\s*(.+)$", re.IGNORECASE),
+    re.compile(r"^(?:reference track|reference|similar to|reminds me of|like)\s*[:\\-]?\s*(.+)$", re.IGNORECASE),
 )
 
 _SECTION_PATTERNS = (
@@ -188,18 +178,18 @@ _STAGES = (
 )
 
 _SECTION_FOCUS_NAMES = (
+    "main groove",
     "intro",
-    "build",
     "buildup",
+    "build",
     "drop",
-    "break",
     "breakdown",
+    "break",
     "verse",
     "chorus",
     "bridge",
     "outro",
     "groove",
-    "main groove",
     "bassline",
     "transition",
 )
