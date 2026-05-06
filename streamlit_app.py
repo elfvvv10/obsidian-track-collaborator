@@ -57,6 +57,7 @@ from services.ui_session_helpers import (
     synced_dev_mode_preset_selection,
     synced_chat_provider_selection,
     track_context_status,
+    track_memory_workflow_steps,
 )
 from utils import RetrievalFilters, RetrievalOptions, current_timestamp
 
@@ -195,53 +196,143 @@ def _render_sidebar(
         st.caption(
             "Persistent memory for the current in-progress track. This YAML Track Context is the primary track-state system."
         )
+        if not st.session_state.get("advanced_track_context_track_id", "").strip():
+            st.session_state["advanced_track_context_track_id"] = st.session_state.get(
+                "track_context_track_id", ""
+            )
         st.text_input(
-            "Track ID",
-            key="track_context_track_id",
-            help="Stable internal ID for your in-progress track. Use the same ID to reopen the same persistent track memory later.",
+            "Track name or ID",
+            key="advanced_track_context_track_id",
+            help=(
+                "Advanced shortcut for the same track memory used at the top of the Ask tab. "
+                "Use the same name or ID to reopen the same saved YAML memory later."
+            ),
         )
-        st.checkbox(
-            "Use Track Context",
-            key="use_track_context",
-            help="Enable persistent YAML track memory for asks and research workflows.",
-        )
-        typed_track_id = st.session_state.get("track_context_track_id", "").strip()
+        typed_track_id = st.session_state.get("advanced_track_context_track_id", "").strip()
+        status_track_id = typed_track_id or st.session_state.get("track_context_track_id", "").strip()
         active_track_id = st.session_state.get("active_track_context_id", "").strip()
         load_col, clear_col = st.columns(2)
         load_clicked = load_col.button(
-            "Load Track Context",
+            "Start / Resume",
             use_container_width=True,
             disabled=not typed_track_id,
-            help="Load an existing persistent track memory or initialize a new one for this Track ID.",
+            help="Open existing track memory or create a new one for this name or ID.",
+            key="advanced_load_track_context",
         )
         clear_active_clicked = clear_col.button(
             "Clear Active Track",
             use_container_width=True,
             disabled=not active_track_id,
             help="Clear the active Track Context for this session without deleting the saved YAML file.",
+            key="advanced_clear_active_track_context",
         )
         if load_clicked and typed_track_id:
-            context_exists = query_service.track_context_service.canonical_exists(typed_track_id)
-            loaded_context = query_service.track_context_service.load_or_create_canonical_track_context(
-                typed_track_id
-            )
-            st.session_state["active_track_context_id"] = typed_track_id
-            st.session_state["active_track_context_loaded_existing"] = context_exists
-            st.session_state["current_track_context"] = loaded_context
-            st.session_state["session_tasks"] = query_service.track_task_service.load_session_tasks(typed_track_id)
-            st.session_state["session_tasks_track_id"] = typed_track_id
-            st.session_state["active_section_focus"] = ""
-            st.session_state["track_context_editor_synced_track_id"] = ""
+            st.session_state["track_context_track_id"] = typed_track_id
+            st.session_state["use_track_context"] = True
+            st.session_state["show_track_wizard"] = False
+            _load_or_create_track_context(query_service, typed_track_id)
             st.rerun()
         if clear_active_clicked:
-            st.session_state["active_track_context_id"] = ""
-            st.session_state["active_track_context_loaded_existing"] = False
-            st.session_state["current_track_context"] = None
-            st.session_state["session_tasks"] = []
-            st.session_state["session_tasks_track_id"] = ""
-            st.session_state["active_section_focus"] = ""
-            st.session_state["track_context_editor_synced_track_id"] = ""
+            _clear_active_track_context()
             st.rerun()
+
+        new_track_col, _ = st.columns([1, 1])
+        new_track_clicked = new_track_col.button(
+            "+ New Track",
+            use_container_width=True,
+            help="Create a new YAML Track Context with a guided form.",
+            key="sidebar_new_track_wizard",
+        )
+        if new_track_clicked:
+            st.session_state["show_track_wizard"] = True
+
+        if st.session_state.get("show_track_wizard", False):
+            with st.form("track_context_wizard", clear_on_submit=True, enter_to_submit=False):
+                st.markdown("#### New Track Context")
+                st.caption("Fill in what you know — you can edit everything later.")
+
+                wizard_track_id = st.text_input(
+                    "Track ID *",
+                    key="wizard_track_id",
+                    help="A short, URL-safe identifier for this track. Used as the filename. Example: moonlit_driver",
+                    placeholder="my_new_track",
+                )
+                wizard_track_name = st.text_input(
+                    "Title",
+                    key="wizard_track_name",
+                    help="The display name of your track.",
+                    placeholder="My New Track",
+                )
+                wizard_genre = st.text_input(
+                    "Genre",
+                    key="wizard_genre",
+                    help="Primary genre.",
+                    placeholder="progressive house",
+                )
+                col1, col2 = st.columns(2)
+                wizard_bpm = col1.text_input(
+                    "BPM",
+                    key="wizard_bpm",
+                    placeholder="126",
+                )
+                wizard_key = col2.text_input(
+                    "Key",
+                    key="wizard_key",
+                    placeholder="A minor",
+                )
+                wizard_vibe = st.text_input(
+                    "Vibe (comma separated)",
+                    key="wizard_vibe",
+                    help="A few words describing the mood/energy.",
+                    placeholder="driving, euphoric, dark",
+                )
+                wizard_issues = st.text_area(
+                    "Known Issues (one per line, optional)",
+                    key="wizard_issues",
+                    help="Any problems you already know about.",
+                    height=70,
+                )
+
+                wizard_col1, wizard_col2 = st.columns(2)
+                submitted = wizard_col1.form_submit_button(
+                    "Create Track",
+                    use_container_width=True,
+                    type="primary",
+                )
+                cancelled = wizard_col2.form_submit_button("Cancel", use_container_width=True)
+
+            if submitted:
+                track_id = wizard_track_id.strip()
+                if not track_id:
+                    st.error("Track ID is required.")
+                else:
+                    bpm_value = None
+                    if wizard_bpm.strip():
+                        try:
+                            bpm_value = int(wizard_bpm.strip())
+                        except ValueError:
+                            st.error("BPM must be a number.")
+                            bpm_value = None
+                    if bpm_value is not None or not wizard_bpm.strip():
+                        new_context = TrackContext(
+                            track_id=track_id,
+                            track_name=wizard_track_name.strip() or None,
+                            genre=wizard_genre.strip() or None,
+                            bpm=bpm_value,
+                            key=wizard_key.strip() or None,
+                            vibe=_split_csv(wizard_vibe),
+                            known_issues=_split_lines(wizard_issues),
+                        )
+                        query_service.track_context_service.save_canonical_track_context(new_context)
+                        _load_or_create_track_context(query_service, track_id)
+                        st.session_state["show_track_wizard"] = False
+                        st.session_state["advanced_track_context_track_id"] = track_id
+                        st.success(f"Track '{track_id}' created and loaded.")
+                        st.rerun()
+
+            if cancelled:
+                st.session_state["show_track_wizard"] = False
+                st.rerun()
 
         sidebar_context = None
         if st.session_state.get("use_track_context") and active_track_id:
@@ -255,7 +346,7 @@ def _render_sidebar(
             _sync_track_context_editor_state(sidebar_context)
             status_title, status_caption = track_context_status(
                 use_track_context=True,
-                entered_track_id=typed_track_id,
+                entered_track_id=status_track_id,
                 active_track_id=active_track_id,
                 existed_before_load=st.session_state.get("active_track_context_loaded_existing", False),
                 track_context=sidebar_context,
@@ -349,7 +440,7 @@ def _render_sidebar(
         elif st.session_state.get("use_track_context"):
             status_title, status_caption = track_context_status(
                 use_track_context=True,
-                entered_track_id=typed_track_id,
+                entered_track_id=status_track_id,
                 active_track_id=active_track_id,
                 existed_before_load=st.session_state.get("active_track_context_loaded_existing", False),
                 track_context=sidebar_context,
@@ -359,7 +450,7 @@ def _render_sidebar(
         else:
             status_title, status_caption = track_context_status(
                 use_track_context=False,
-                entered_track_id=typed_track_id,
+                entered_track_id=status_track_id,
                 active_track_id=active_track_id,
                 existed_before_load=st.session_state.get("active_track_context_loaded_existing", False),
                 track_context=sidebar_context,
@@ -443,6 +534,7 @@ def _render_ask_tab(
         st.session_state["workflow_mode"] = WorkflowMode.DIRECT.value
         st.session_state["use_track_context"] = True
         st.session_state["track_context_current_stage"] = ""
+        st.session_state["show_track_wizard"] = False
         st.session_state["max_subquestions"] = 3
         st.session_state["chat_messages"] = []
         st.session_state["session_tasks"] = []
@@ -750,6 +842,7 @@ def _render_ask_tab(
     chat_workspace_enabled = selected_workflow.value in _CHAT_TASK_WORKFLOWS
 
     with main_col:
+        _render_track_memory_start_panel(query_service, active_track_context)
         _render_current_track_summary(active_track_context)
         critique_status = critique_support_summary(
             selected_workflow,
@@ -1222,6 +1315,93 @@ def _active_yaml_track_context(query_service: QueryService):
 
 def _active_yaml_track_id() -> str:
     return st.session_state.get("active_track_context_id", "").strip()
+
+
+def _load_or_create_track_context(query_service: QueryService, track_id: str) -> None:
+    context_exists = query_service.track_context_service.canonical_exists(track_id)
+    loaded_context = query_service.track_context_service.load_or_create_canonical_track_context(track_id)
+    st.session_state["active_track_context_id"] = track_id
+    st.session_state["active_track_context_loaded_existing"] = context_exists
+    st.session_state["current_track_context"] = loaded_context
+    st.session_state["session_tasks"] = query_service.track_task_service.load_session_tasks(track_id)
+    st.session_state["session_tasks_track_id"] = track_id
+    st.session_state["active_section_focus"] = ""
+    st.session_state["track_context_editor_synced_track_id"] = ""
+
+
+def _clear_active_track_context() -> None:
+    st.session_state["active_track_context_id"] = ""
+    st.session_state["active_track_context_loaded_existing"] = False
+    st.session_state["current_track_context"] = None
+    st.session_state["session_tasks"] = []
+    st.session_state["session_tasks_track_id"] = ""
+    st.session_state["active_section_focus"] = ""
+    st.session_state["track_context_editor_synced_track_id"] = ""
+    st.session_state["show_track_wizard"] = False
+
+
+def _render_track_memory_start_panel(query_service: QueryService, track_context: TrackContext | None) -> None:
+    active_track_id = _active_yaml_track_id()
+    entered_track_id = st.session_state.get("track_context_track_id", "").strip()
+    status_title, status_caption = track_context_status(
+        use_track_context=st.session_state.get("use_track_context", True),
+        entered_track_id=entered_track_id,
+        active_track_id=active_track_id,
+        existed_before_load=st.session_state.get("active_track_context_loaded_existing", False),
+        track_context=track_context,
+    )
+
+    with st.container(border=True):
+        st.markdown("### Start / Resume a Track")
+        st.caption(
+            "Track memory is the project workspace for an in-progress tune. "
+            "Enter a track name or stable ID, then start/resume to create a new YAML memory or reopen an existing one."
+        )
+        with st.expander("Simple workflow", expanded=track_context is None):
+            for index, step in enumerate(track_memory_workflow_steps(), start=1):
+                st.write(f"**Step {index}:** {step}")
+
+        st.checkbox(
+            "Use track memory for this session",
+            key="use_track_context",
+            help="Include the active YAML track memory in asks and research workflows.",
+        )
+        input_col, action_col = st.columns([2.2, 1])
+        input_col.text_input(
+            "Track name or ID",
+            key="track_context_track_id",
+            placeholder="moonlit-driver or Warehouse Hypnosis",
+            help="Use the same name or ID later to reopen this saved track memory.",
+        )
+        start_disabled = not st.session_state.get("track_context_track_id", "").strip()
+        start_clicked = action_col.button(
+            "Start / Resume Track Memory",
+            type="primary",
+            use_container_width=True,
+            disabled=start_disabled,
+            help="Create a new track memory if it does not exist, or reopen the existing one.",
+            key="start_resume_track_memory",
+        )
+        clear_clicked = action_col.button(
+            "Clear Active Track",
+            use_container_width=True,
+            disabled=not active_track_id,
+            help="Clear the active track for this session without deleting saved YAML.",
+            key="clear_active_track_memory_main",
+        )
+        st.caption(status_title)
+        st.caption(status_caption)
+
+    if start_clicked:
+        track_id = st.session_state.get("track_context_track_id", "").strip()
+        if track_id:
+            st.session_state["use_track_context"] = True
+            st.session_state["advanced_track_context_track_id"] = track_id
+            _load_or_create_track_context(query_service, track_id)
+            st.rerun()
+    if clear_clicked:
+        _clear_active_track_context()
+        st.rerun()
 
 
 def _render_current_track_summary(track_context) -> None:
@@ -2138,6 +2318,8 @@ def _init_session_state(config: AppConfig) -> None:
         "workflow_track_selector": "None",
         "workflow_track_selector_applied_path": "",
         "track_context_track_id": "",
+        "advanced_track_context_track_id": "",
+        "show_track_wizard": False,
         "active_track_context_id": "",
         "active_track_context_loaded_existing": False,
         "current_track_context": None,
