@@ -17,6 +17,12 @@ class FrameworkService:
 
     _FRAMEWORK_REGISTRY: dict[CollaborationWorkflow, str] = {
         CollaborationWorkflow.TRACK_CONCEPT_CRITIQUE: "track_critique_framework_v1.md",
+        CollaborationWorkflow.GENRE_FIT_REVIEW: "track_critique_framework_v1.md",
+    }
+
+    _VERSION_MAP: dict[str, str] = {
+        "v1": "track_critique_framework_v1.md",
+        "v2": "track_critique_framework_v2.md",
     }
 
     def __init__(self, config: AppConfig, *, repo_root: Path | None = None) -> None:
@@ -72,6 +78,11 @@ class FrameworkService:
         filename = self._FRAMEWORK_REGISTRY.get(workflow)
         if not filename:
             return None, "unregistered"
+
+        # Apply version override from config
+        version = (self.config.track_critique_framework_version or "v1").strip().lower()
+        if version in self._VERSION_MAP:
+            filename = self._VERSION_MAP[version]
 
         override_path = self._resolve_override_path(workflow)
         if override_path is not None and override_path.exists():

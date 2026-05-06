@@ -180,6 +180,7 @@ class QueryService:
                 recent_conversation=request.recent_conversation,
                 current_tasks=current_tasks,
                 web_alignment=self._last_web_alignment,
+                use_track_context=request.use_track_context,
             )
             answer_result, track_context_update = self._answer_with_track_context_update(
                 answer_result,
@@ -234,6 +235,7 @@ class QueryService:
                 recent_conversation=request.recent_conversation,
                 current_tasks=current_tasks,
                 web_alignment=self._last_web_alignment,
+                use_track_context=request.use_track_context,
             )
             answer_result, track_context_update = self._answer_with_track_context_update(
                 answer_result,
@@ -872,7 +874,7 @@ def _build_answer_result(
         collaboration_workflow=collaboration_workflow,
         workflow_input=workflow_input,
         track_id=track_context.track_id if track_context is not None else None,
-        use_track_context=track_context is not None,
+        use_track_context=use_track_context,
         track_context=track_context,
         section_focus=section_focus,
         recent_conversation=recent_conversation,

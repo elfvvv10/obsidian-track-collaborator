@@ -1375,43 +1375,49 @@ def _track_context_update_instructions(
 
     capture_intent = _has_track_context_capture_intent(question)
     lines = [
-        "Track Context update proposal instructions:",
-        "- When the conversation meaningfully clarifies or changes the active track state, you may append one structured update proposal.",
-        "- If nothing meaningful changed, do not output any Track Context update proposal.",
-        "- Do not mention the proposal mechanism in the normal answer.",
-        f"- The active track_id is `{track_context.track_id}`.",
-        *([f"- Current session section focus: `{section_focus.strip()}`."] if section_focus and section_focus.strip() else []),
-        "- Keep proposals conservative. Do not casually overwrite title, BPM, key, genre, or stage unless the user clearly stated or strongly corrected them.",
-        "- You may propose helpful inferred updates for current issues and next actions when they are strongly grounded in the conversation.",
-        "- Allowed scalar fields in `set_fields`: title, genre, bpm, key, status, current_stage, current_problem.",
-        "- Allowed list fields in `add_to_lists` or `remove_from_lists`: vibe, references, current_issues, next_actions.",
-        "- For section-aware updates, you may use `set_sections`, `add_section_issues`, `remove_section_issues`, `add_section_elements`, and `add_section_notes`.",
-        "- For session-only section carryover, you may use `section_focus`.",
-        "- Section keys should be simple names such as intro, groove, break, build, drop, or outro.",
-        "- Use this exact fenced JSON format only when needed:",
+        "=== Track Context Update (optional — append to your answer if relevant) ===",
+        f"Active track: `{track_context.track_name or track_context.track_id}`",
+        f"Current stage: `{track_context.current_stage or 'not set'}`",
+        f"Current issues: {', '.join(track_context.known_issues) if track_context.known_issues else 'none tracked'}",
+        f"Current goals: {', '.join(track_context.goals) if track_context.goals else 'none tracked'}",
+        "",
+        "If this conversation meaningfully clarifies or changes the track state, append one structured",
+        "update proposal at the very end of your answer using this exact fenced JSON format:",
+        "",
+    ]
+    if capture_intent:
+        lines.append(
+            "[NOTE] The user explicitly asked to capture or update track context."
+        )
+        lines.append(
+            "If the requested change is supported, include a proposal with confidence=medium or higher."
+        )
+        lines.append("")
+    lines.extend([
         "```track_context_update",
         "{",
         f'  "track_id": "{track_context.track_id}",',
-        '  "summary": "Short explanation of the proposed change.",',
+        '  "summary": "Short plain-language explanation of what changed and why.",',
+        '  "confidence": "low|medium|high",',
+        '  "source_reasoning": "Grounding in the conversation.",',
         '  "set_fields": {},',
         '  "add_to_lists": {},',
         '  "remove_from_lists": {},',
         '  "set_sections": {},',
-        '  "add_section_issues": {},',
-        '  "remove_section_issues": {},',
-        '  "add_section_elements": {},',
-        '  "add_section_notes": {},',
-        '  "section_focus": "",',
-        '  "confidence": "low|medium|high",',
-        '  "source_reasoning": "Short explanation grounded in the conversation."',
+        '  "section_focus": ""',
         "}",
         "```",
-    ]
-    if capture_intent:
-        lines.insert(
-            1,
-            "- The user explicitly asked to capture or update track context, so bias toward returning a proposal if the requested change is supported.",
-        )
+        "",
+        "Rules:",
+        "- Keep proposals conservative. Do not overwrite title, BPM, key, genre, or stage unless the user clearly stated or strongly corrected them.",
+        "- Allowed scalar fields in `set_fields`: title, genre, bpm, key, status, current_stage, current_problem.",
+        "- Allowed list fields in `add_to_lists` or `remove_from_lists`: vibe, references, current_issues, next_actions.",
+        "- For section-specific updates use `set_sections` with keys like intro, buildup, drop, breakdown, outro.",
+        "- If nothing meaningful changed, omit the block entirely. Do not mention it.",
+        "- Do not refer to this mechanism in your natural-language answer.",
+    ])
+    if section_focus and section_focus.strip():
+        lines.insert(3, f"Current section focus: `{section_focus.strip()}`")
     return "\n".join(lines)
 
 

@@ -159,6 +159,27 @@ def suggestion_groups(
         groups.append(("Current Stage", suggestions.current_stage))
     if suggestions.current_problem:
         groups.append(("Current Problem", suggestions.current_problem))
+    if suggestions.vibe_suggestions:
+        groups.append(("Vibe Suggestions", suggestions.vibe_suggestions))
+    if suggestions.reference_track_suggestions:
+        groups.append(("Reference Tracks", suggestions.reference_track_suggestions))
+    if suggestions.bpm_suggestion:
+        groups.append(("BPM Suggestion", str(suggestions.bpm_suggestion)))
+    if suggestions.key_suggestion:
+        groups.append(("Key Suggestion", suggestions.key_suggestion))
+    if suggestions.section_focus:
+        groups.append(("Section Focus", suggestions.section_focus))
+    if suggestions.section_suggestions:
+        for section_name, section_data in suggestions.section_suggestions.items():
+            issues = section_data.get("issues", [])
+            elements = section_data.get("elements", [])
+            parts: list[str] = []
+            if issues:
+                parts.append(f"Issues: {', '.join(str(i) for i in issues)}")
+            if elements:
+                parts.append(f"Elements: {', '.join(str(e) for e in elements)}")
+            if parts:
+                groups.append((f"Section: {section_name.title()}", parts))
     return groups
 
 

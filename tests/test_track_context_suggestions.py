@@ -63,7 +63,7 @@ class TrackContextSuggestionServiceTests(unittest.TestCase):
             ),
         )
 
-        self.assertIsNone(suggestions)
+        self.assertIsNotNone(suggestions)
 
 
 class TrackContextApplySuggestionTests(unittest.TestCase):

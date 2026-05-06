@@ -164,6 +164,30 @@ class TrackContextService:
             updates["current_stage"] = suggestions.current_stage
         if suggestions.current_problem:
             updates["current_problem"] = suggestions.current_problem
+        if suggestions.vibe_suggestions:
+            updates["vibe"] = _merge_unique(context.vibe, suggestions.vibe_suggestions)
+        if suggestions.reference_track_suggestions:
+            updates["reference_tracks"] = _merge_unique(
+                context.reference_tracks, suggestions.reference_track_suggestions
+            )
+        if suggestions.bpm_suggestion is not None:
+            updates["bpm"] = suggestions.bpm_suggestion
+        if suggestions.key_suggestion:
+            updates["key"] = suggestions.key_suggestion
+        if suggestions.section_suggestions:
+            merged_sections = dict(context.sections)
+            for sec_name, sec_data in suggestions.section_suggestions.items():
+                if sec_name not in merged_sections:
+                    from services.models import SectionContext
+                    merged_sections[sec_name] = SectionContext(name=sec_name)
+                section = merged_sections[sec_name]
+                sec_issues = list(sec_data.get("issues", []) or [])
+                if sec_issues:
+                    section.issues = _merge_unique(section.issues, sec_issues)
+                sec_elements = list(sec_data.get("elements", []) or [])
+                if sec_elements:
+                    section.elements = _merge_unique(section.elements, sec_elements)
+            updates["sections"] = merged_sections
         return self.update_canonical_track_context_fields(track_id, updates)
 
     def get_track_context(

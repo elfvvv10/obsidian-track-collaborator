@@ -65,6 +65,7 @@ class AppConfig:
     webpage_fetch_timeout_seconds: int = 15
     webpage_fetch_user_agent: str = "obsidian-rag-assistant/1.0"
     track_critique_framework_path: str = ""
+    track_critique_framework_version: str = "v1"
     framework_debug: bool = False
     chroma_collection_name: str = "obsidian_notes"
     ollama_timeout_seconds: int = 60
