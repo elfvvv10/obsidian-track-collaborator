@@ -9,3 +9,4 @@ chroma_db_test/
 sample_vault/research_answers/
 .DS_Store
 sample_vault/.obsidian/workspace.json
+setup-creative-vault.sh
